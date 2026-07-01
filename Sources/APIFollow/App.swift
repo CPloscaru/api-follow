@@ -8,7 +8,7 @@ struct APIFollowApp: App {
     private let poller: Poller
     private let snapshot: SpendSnapshotStore
 
-    private static let providers: [Provider] = [.anthropic, .openai]
+    private static let providers: [Provider] = [.anthropic, .openai, .openrouter]
 
     init() {
         let store: SpendStore
@@ -27,10 +27,11 @@ struct APIFollowApp: App {
         let adapters: [Provider: ProviderAdapter] = [
             .anthropic: AnthropicAdapter(),
             .openai: OpenAIAdapter(),
+            .openrouter: OpenRouterAdapter(),
         ]
         let poller = Poller(store: store, keychain: keychain, adapters: adapters)
         self.poller = poller
-        self.snapshot = SpendSnapshotStore(store: store, poller: poller, providers: Self.providers)
+        self.snapshot = SpendSnapshotStore(store: store, poller: poller, keychain: keychain, providers: Self.providers)
 
         Self.registerLaunchAtLogin()
 

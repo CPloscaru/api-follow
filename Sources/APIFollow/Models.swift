@@ -6,6 +6,7 @@ import Foundation
 enum Provider: String, CaseIterable, Codable, Sendable {
     case anthropic
     case openai
+    case openrouter
 }
 
 /// Anthropic's Cost API only supports workspace-level grouping (no

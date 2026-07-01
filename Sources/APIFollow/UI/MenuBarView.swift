@@ -13,8 +13,18 @@ struct MenuBarView: View {
 
             Divider()
 
-            ForEach(Provider.allCases, id: \.self) { provider in
-                providerRow(provider)
+            ForEach(snapshot.providers, id: \.self) { provider in
+                if snapshot.keysConfigured.contains(provider) {
+                    providerRow(provider)
+                } else {
+                    KeyEntryRow(provider: provider, snapshot: snapshot)
+                }
+            }
+
+            if let error = snapshot.saveKeyError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
 
             Divider()
@@ -26,7 +36,7 @@ struct MenuBarView: View {
             }
         }
         .padding(16)
-        .frame(width: 260)
+        .frame(width: 280)
     }
 
     private var headline: some View {
@@ -46,7 +56,7 @@ struct MenuBarView: View {
     private func providerRow(_ provider: Provider) -> some View {
         let status = snapshot.statuses[provider] ?? .staleTransient(lastPolledAt: nil)
         return HStack {
-            Text(providerLabel(provider))
+            Text(Self.providerLabel(provider))
             Spacer()
             Text(statusLabel(status))
                 .font(.caption)
@@ -61,10 +71,11 @@ struct MenuBarView: View {
         return formatter.string(from: snapshot.monthToDateTotal as NSDecimalNumber) ?? "$0.00"
     }
 
-    private func providerLabel(_ provider: Provider) -> String {
+    static func providerLabel(_ provider: Provider) -> String {
         switch provider {
         case .anthropic: return "Anthropic"
         case .openai: return "OpenAI"
+        case .openrouter: return "OpenRouter"
         }
     }
 
@@ -95,6 +106,57 @@ struct MenuBarView: View {
         case .ok: return .green
         case .syncing: return .orange
         case .needsAttention: return .red
+        }
+    }
+}
+
+/// Inline key-entry field shown for any provider with no Keychain entry
+/// yet. This is the only user-input surface in v1 (design doc Test Plan).
+/// Deliberately inline in the popover rather than a separate settings
+/// window — keeps the "menu bar as the star" surface self-contained for
+/// v1's 3 providers; a dedicated settings screen is a reasonable
+/// steady-state add if the provider list grows much further.
+private struct KeyEntryRow: View {
+    let provider: Provider
+    @ObservedObject var snapshot: SpendSnapshotStore
+    @State private var keyText: String = ""
+    @State private var isSaving = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(MenuBarView.providerLabel(provider))
+                .font(.subheadline)
+                .bold()
+            Text(hintText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            HStack {
+                SecureField("Admin / Management key", text: $keyText)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save") {
+                    let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    isSaving = true
+                    Task {
+                        await snapshot.saveKey(trimmed, for: provider)
+                        keyText = ""
+                        isSaving = false
+                    }
+                }
+                .disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var hintText: String {
+        switch provider {
+        case .anthropic:
+            return "Admin API key (sk-ant-admin01-…), not your regular API key. Console → Settings → Organization."
+        case .openai:
+            return "Admin key, not your regular API key. platform.openai.com/settings/organization/admin-keys"
+        case .openrouter:
+            return "Management (Provisioning) key, not your regular API key. openrouter.ai — API Keys settings."
         }
     }
 }

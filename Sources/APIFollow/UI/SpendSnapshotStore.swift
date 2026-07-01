@@ -17,15 +17,42 @@ final class SpendSnapshotStore: ObservableObject {
     @Published private(set) var monthToDateTotal: Decimal = 0
     @Published private(set) var statuses: [Provider: ProviderStatus] = [:]
     @Published private(set) var lastRefreshedAt: Date?
+    /// Providers that currently have a key saved in the Keychain — drives
+    /// whether the menu bar shows a status row or a key-entry field for
+    /// each provider.
+    @Published private(set) var keysConfigured: Set<Provider> = []
+    /// Set (and auto-cleared) when `saveKey` fails, so the UI can surface
+    /// a visible error instead of the save silently doing nothing.
+    @Published var saveKeyError: String?
 
     private let store: SpendStore
     private let poller: Poller
-    private let providers: [Provider]
+    private let keychain: KeychainStore
+    let providers: [Provider]
 
-    init(store: SpendStore, poller: Poller, providers: [Provider]) {
+    init(store: SpendStore, poller: Poller, keychain: KeychainStore, providers: [Provider]) {
         self.store = store
         self.poller = poller
+        self.keychain = keychain
         self.providers = providers
+    }
+
+    /// Writes the key to Keychain, updates `keysConfigured` immediately
+    /// (so the UI swaps from the entry field to the status row without
+    /// waiting for the next 30s refresh tick), and kicks an immediate
+    /// poll for that provider so the user sees a number right away
+    /// rather than waiting up to 5 minutes.
+    func saveKey(_ key: String, for provider: Provider) async {
+        do {
+            try keychain.save(key, for: provider)
+            keysConfigured.insert(provider)
+            saveKeyError = nil
+        } catch {
+            saveKeyError = "Couldn't save key for \(provider.rawValue): \(error.localizedDescription)"
+            return
+        }
+        await poller.pollNow(provider)
+        await refresh()
     }
 
     /// D11: menu bar headline = month-to-date total, summed from each
@@ -36,9 +63,16 @@ final class SpendSnapshotStore: ObservableObject {
     func refresh() async {
         let statuses = await poller.allStatuses()
         let total = (try? store.monthToDateTotal(providers: providers, now: Date())) ?? monthToDateTotal
+        var configured: Set<Provider> = []
+        for provider in providers {
+            if let key = try? keychain.read(for: provider), !key.isEmpty {
+                configured.insert(provider)
+            }
+        }
 
         self.statuses = statuses
         self.monthToDateTotal = total
+        self.keysConfigured = configured
         self.lastRefreshedAt = Date()
     }
 
