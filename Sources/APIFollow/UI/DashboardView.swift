@@ -101,6 +101,7 @@ struct DashboardView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .frame(width: 260)
             Button {
                 Task { await load() }
