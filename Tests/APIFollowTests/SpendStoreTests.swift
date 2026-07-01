@@ -123,6 +123,41 @@ struct SpendStoreTests {
         #expect(recent.contains { $0.amountUSD == 1.00 })
     }
 
+    @Test("dailyTotals sums per day, deduplicating repeated polls of the same day")
+    func dailyTotalsDeduplicatesPerDay() throws {
+        let store = try Self.makeStore()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let day1 = calendar.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 9))!
+        let day2 = calendar.date(from: DateComponents(year: 2026, month: 7, day: 2, hour: 9))!
+
+        // day1 gets polled twice (cumulative grows through the day) —
+        // only the latest should count.
+        try store.write([Self.record(day: day1, amount: 3.00, polledAt: day1)])
+        try store.write([Self.record(day: day1, amount: 5.00, polledAt: day1.addingTimeInterval(600))])
+        try store.write([Self.record(day: day2, amount: 2.00, polledAt: day2)])
+
+        let totals = try store.dailyTotals(for: .anthropic, from: day1, to: day2)
+        #expect(totals.count == 2)
+        let day1Total = totals.first { calendar.isDate($0.day, inSameDayAs: day1) }
+        let day2Total = totals.first { calendar.isDate($0.day, inSameDayAs: day2) }
+        #expect(day1Total?.amount == 5.00)
+        #expect(day2Total?.amount == 2.00)
+    }
+
+    @Test("dailyTotals sums across multiple models on the same day")
+    func dailyTotalsSumsAcrossModels() throws {
+        let store = try Self.makeStore()
+        let day = Date()
+
+        try store.write([Self.record(model: "model-a", day: day, amount: 1.50, polledAt: day)])
+        try store.write([Self.record(model: "model-b", day: day, amount: 2.50, polledAt: day)])
+
+        let totals = try store.dailyTotals(for: .anthropic, from: day, to: day)
+        #expect(totals.count == 1)
+        #expect(totals.first?.amount == 4.00)
+    }
+
     @Test("rollupOldEntries keeps only the latest value per day when rolling up")
     func rollupKeepsLatestValuePerDay() throws {
         let store = try Self.makeStore()

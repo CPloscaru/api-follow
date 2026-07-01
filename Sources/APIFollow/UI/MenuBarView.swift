@@ -6,6 +6,7 @@ import SwiftUI
 /// in-memory snapshot read pattern (no disk hit on render).
 struct MenuBarView: View {
     @ObservedObject var snapshot: SpendSnapshotStore
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -14,11 +15,7 @@ struct MenuBarView: View {
             Divider()
 
             ForEach(snapshot.providers, id: \.self) { provider in
-                if snapshot.keysConfigured.contains(provider) {
-                    providerRow(provider)
-                } else {
-                    KeyEntryRow(provider: provider, snapshot: snapshot)
-                }
+                ProviderRow(provider: provider, snapshot: snapshot)
             }
 
             if let error = snapshot.saveKeyError {
@@ -29,10 +26,17 @@ struct MenuBarView: View {
 
             Divider()
 
-            if let lastRefreshedAt = snapshot.lastRefreshedAt {
-                Text("As of \(lastRefreshedAt.formatted(date: .omitted, time: .shortened))")
+            HStack {
+                if let lastRefreshedAt = snapshot.lastRefreshedAt {
+                    Text("As of \(lastRefreshedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Dashboard") { openWindow(id: "dashboard") }
+                    .buttonStyle(.plain)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.blue)
             }
         }
         .padding(16)
@@ -50,17 +54,6 @@ struct MenuBarView: View {
             Text("MTD")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    private func providerRow(_ provider: Provider) -> some View {
-        let status = snapshot.statuses[provider] ?? .staleTransient(lastPolledAt: nil)
-        return HStack {
-            Text(Self.providerLabel(provider))
-            Spacer()
-            Text(statusLabel(status))
-                .font(.caption)
-                .foregroundStyle(statusColor(status))
         }
     }
 
@@ -82,7 +75,7 @@ struct MenuBarView: View {
     /// D6: four distinct "not current" states get distinct labels, not a
     /// single generic "stale" string — auth-error and parse-error need
     /// to visually read as "needs your attention", not "syncing".
-    private func statusLabel(_ status: ProviderStatus) -> String {
+    static func statusLabel(_ status: ProviderStatus) -> String {
         switch status {
         case .ok:
             return "OK"
@@ -97,7 +90,7 @@ struct MenuBarView: View {
         }
     }
 
-    private func statusColor(_ status: ProviderStatus) -> Color {
+    static func statusColor(_ status: ProviderStatus) -> Color {
         status.needsAttention ? .red : (status.isStale ? .orange : .secondary)
     }
 
@@ -110,43 +103,76 @@ struct MenuBarView: View {
     }
 }
 
-/// Inline key-entry field shown for any provider with no Keychain entry
-/// yet. This is the only user-input surface in v1 (design doc Test Plan).
-/// Deliberately inline in the popover rather than a separate settings
-/// window — keeps the "menu bar as the star" surface self-contained for
-/// v1's 3 providers; a dedicated settings screen is a reasonable
-/// steady-state add if the provider list grows much further.
-private struct KeyEntryRow: View {
+/// Shows either the compact status row (with a "Change key" affordance)
+/// or the key-entry field, per provider. This is the only user-input
+/// surface in v1 (design doc Test Plan). Deliberately inline in the
+/// popover rather than a separate settings window — keeps the "menu bar
+/// as the star" surface self-contained for v1's 3 providers.
+///
+/// A provider with a configured key that's still rejected (auth error)
+/// MUST be editable, not just providers with no key yet — this was a
+/// real gap: the first version only showed the entry field when no key
+/// existed at all, leaving no way to correct a wrong/invalid key once
+/// saved.
+private struct ProviderRow: View {
     let provider: Provider
     @ObservedObject var snapshot: SpendSnapshotStore
+    @State private var isEditing = false
     @State private var keyText: String = ""
     @State private var isSaving = false
 
+    private var hasKey: Bool { snapshot.keysConfigured.contains(provider) }
+    private var status: ProviderStatus { snapshot.statuses[provider] ?? .staleTransient(lastPolledAt: nil) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(MenuBarView.providerLabel(provider))
-                .font(.subheadline)
-                .bold()
-            Text(hintText)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+        if hasKey && !isEditing {
             HStack {
-                SecureField("Admin / Management key", text: $keyText)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") {
-                    let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    isSaving = true
-                    Task {
-                        await snapshot.saveKey(trimmed, for: provider)
-                        keyText = ""
-                        isSaving = false
+                Text(MenuBarView.providerLabel(provider))
+                Spacer()
+                Text(MenuBarView.statusLabel(status))
+                    .font(.caption)
+                    .foregroundStyle(MenuBarView.statusColor(status))
+                Button("Change key") { isEditing = true }
+                    .buttonStyle(.plain)
+                    .font(.caption2)
+                    .foregroundStyle(.blue)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(MenuBarView.providerLabel(provider))
+                        .font(.subheadline)
+                        .bold()
+                    if hasKey {
+                        Spacer()
+                        Button("Cancel") { isEditing = false; keyText = "" }
+                            .buttonStyle(.plain)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                Text(hintText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    SecureField("Admin / Management key", text: $keyText)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Save") {
+                        let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        isSaving = true
+                        Task {
+                            await snapshot.saveKey(trimmed, for: provider)
+                            keyText = ""
+                            isSaving = false
+                            isEditing = false
+                        }
+                    }
+                    .disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                }
             }
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
 
     private var hintText: String {
@@ -156,7 +182,7 @@ private struct KeyEntryRow: View {
         case .openai:
             return "Admin key, not your regular API key. platform.openai.com/settings/organization/admin-keys"
         case .openrouter:
-            return "Management (Provisioning) key, not your regular API key. openrouter.ai — API Keys settings."
+            return "Your regular OpenRouter API key (sk-or-v1-…) — no Management key needed. openrouter.ai/keys"
         }
     }
 }

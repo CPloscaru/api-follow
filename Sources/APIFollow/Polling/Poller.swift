@@ -1,7 +1,10 @@
 import Foundation
+import os.log
 #if canImport(AppKit)
 import AppKit
 #endif
+
+private let pollerLog = Logger(subsystem: "com.apifollow.app", category: "Poller")
 
 /// Owns the poll loop for all configured providers. Actor-isolated so the
 /// overlap guard (D7) and status map can't race under concurrent access.
@@ -127,13 +130,17 @@ actor Poller {
         do {
             key = try keychain.read(for: provider)
         } catch {
+            pollerLog.error("\(provider.rawValue, privacy: .public): Keychain read threw: \(String(describing: error), privacy: .public)")
             key = nil
         }
 
         guard let key, !key.isEmpty else {
             // No key configured yet — not an error state, just nothing to do.
+            pollerLog.notice("\(provider.rawValue, privacy: .public): pollNow called but no key configured, skipping")
             return
         }
+
+        pollerLog.info("\(provider.rawValue, privacy: .public): starting poll")
 
         let until = Date()
         let calendar = Calendar(identifier: .gregorian)
@@ -151,20 +158,26 @@ actor Poller {
             do {
                 try store.write(records)
                 statuses[provider] = .ok(lastPolledAt: Date())
+                pollerLog.info("\(provider.rawValue, privacy: .public): poll succeeded, \(records.count) record(s)")
             } catch {
                 // A write failure is a local problem, not an API problem —
                 // still surfaces as parseError-family since it means the
                 // number we have is not trustworthy to display as current.
                 statuses[provider] = .staleParseError(lastPolledAt: lastGood)
+                pollerLog.error("\(provider.rawValue, privacy: .public): SQLite write failed: \(String(describing: error), privacy: .public)")
             }
-        case .transientFailure:
+        case .transientFailure(let error):
             statuses[provider] = .staleTransient(lastPolledAt: lastGood)
+            pollerLog.error("\(provider.rawValue, privacy: .public): transient failure: \(String(describing: error), privacy: .public)")
         case .rateLimited:
             statuses[provider] = .staleRateLimited(lastPolledAt: lastGood)
+            pollerLog.notice("\(provider.rawValue, privacy: .public): rate limited")
         case .authError:
             statuses[provider] = .staleAuthError(lastPolledAt: lastGood)
-        case .parseError:
+            pollerLog.error("\(provider.rawValue, privacy: .public): auth error (401/403) — key likely invalid or wrong key type")
+        case .parseError(let error):
             statuses[provider] = .staleParseError(lastPolledAt: lastGood)
+            pollerLog.error("\(provider.rawValue, privacy: .public): parse error: \(String(describing: error), privacy: .public)")
         }
     }
 

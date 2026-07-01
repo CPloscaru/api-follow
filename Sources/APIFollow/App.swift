@@ -56,6 +56,11 @@ struct APIFollowApp: App {
             MenuBarView(snapshot: snapshot)
         }
         .menuBarExtraStyle(.window)
+
+        Window("API Follow Dashboard", id: "dashboard") {
+            DashboardView(store: store, providers: Self.providers)
+        }
+        .defaultSize(width: 480, height: 420)
     }
 
     private static func databasePath() -> String {

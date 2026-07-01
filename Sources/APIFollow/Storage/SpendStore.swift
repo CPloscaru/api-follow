@@ -108,19 +108,25 @@ final class SpendStore: @unchecked Sendable {
     /// always the last-known value, regardless of freshness).
     func latestPerAttribution(for provider: Provider) throws -> [SpendRecord] {
         try dbQueue.read { db in
+            // Group on MAX(id), not MAX(polled_at): polled_at is
+            // serialized at second precision, so two polls completing
+            // within the same wall-clock second produce identical
+            // strings — a polled_at-based join would then match BOTH
+            // rows (a real bug this app hit and fixed). `id` is a
+            // strictly increasing primary key, so it's tie-free.
             let rows = try Row.fetchAll(
                 db,
                 sql: """
                     SELECT r.* FROM raw_polls r
                     INNER JOIN (
-                        SELECT attribution_id, model, MAX(polled_at) AS max_polled_at
+                        SELECT attribution_id, model, MAX(id) AS max_id
                         FROM raw_polls
                         WHERE provider = ?
                         GROUP BY attribution_id, model
                     ) latest
                     ON r.attribution_id = latest.attribution_id
                     AND (r.model IS latest.model)
-                    AND r.polled_at = latest.max_polled_at
+                    AND r.id = latest.max_id
                     WHERE r.provider = ?
                     """,
                 arguments: [provider.rawValue, provider.rawValue]
@@ -143,12 +149,17 @@ final class SpendStore: @unchecked Sendable {
         return try dbQueue.read { db in
             var total: Decimal = 0
             for provider in providers {
+                // MAX(id), not MAX(polled_at) — see latestPerAttribution's
+                // comment for why: second-precision timestamps can tie
+                // when two polls complete within the same wall-clock
+                // second, which silently double-counted spend before
+                // this fix (caught by a unit test).
                 let rows = try Row.fetchAll(
                     db,
                     sql: """
                         SELECT r.amount_usd FROM raw_polls r
                         INNER JOIN (
-                            SELECT attribution_id, model, day, MAX(polled_at) AS max_polled_at
+                            SELECT attribution_id, model, day, MAX(id) AS max_id
                             FROM raw_polls
                             WHERE provider = ? AND day >= ?
                             GROUP BY attribution_id, model, day
@@ -156,7 +167,7 @@ final class SpendStore: @unchecked Sendable {
                         ON r.attribution_id = latest.attribution_id
                         AND (r.model IS latest.model)
                         AND r.day = latest.day
-                        AND r.polled_at = latest.max_polled_at
+                        AND r.id = latest.max_id
                         WHERE r.provider = ?
                         """,
                     arguments: [provider.rawValue, monthStartDay, provider.rawValue]
@@ -193,6 +204,66 @@ final class SpendStore: @unchecked Sendable {
         }
     }
 
+    /// Per-day totals for the dashboard's day-by-day view — each day
+    /// summed from the LATEST poll per (attribution, model) that day
+    /// (same dedup rule as `monthToDateTotal`, just not restricted to
+    /// the current month), merged with any already-rolled-up
+    /// `daily_aggregates` history beyond the retention window.
+    func dailyTotals(for provider: Provider, from: Date, to: Date) throws -> [(day: Date, amount: Decimal)] {
+        let fromDay = Self.dayString(from)
+        let toDay = Self.dayString(to)
+
+        return try dbQueue.read { db in
+            var totals: [String: Decimal] = [:]
+
+            let rawRows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT r.day, r.amount_usd FROM raw_polls r
+                    INNER JOIN (
+                        SELECT attribution_id, model, day, MAX(id) AS max_id
+                        FROM raw_polls
+                        WHERE provider = ? AND day >= ? AND day <= ?
+                        GROUP BY attribution_id, model, day
+                    ) latest
+                    ON r.attribution_id = latest.attribution_id
+                    AND (r.model IS latest.model)
+                    AND r.day = latest.day
+                    AND r.id = latest.max_id
+                    WHERE r.provider = ?
+                    """,
+                arguments: [provider.rawValue, fromDay, toDay, provider.rawValue]
+            )
+            for row in rawRows {
+                guard let day: String = row["day"], let amountString: String = row["amount_usd"],
+                      let amount = Decimal(string: amountString) else { continue }
+                totals[day, default: 0] += amount
+            }
+
+            // daily_aggregates already stores one settled row per
+            // (attribution, model, day) — no further dedup needed, just sum.
+            let aggregateRows = try Row.fetchAll(
+                db,
+                sql: "SELECT day, amount_usd FROM daily_aggregates WHERE provider = ? AND day >= ? AND day <= ?",
+                arguments: [provider.rawValue, fromDay, toDay]
+            )
+            for row in aggregateRows {
+                guard let day: String = row["day"], let amountString: String = row["amount_usd"],
+                      let amount = Decimal(string: amountString) else { continue }
+                totals[day, default: 0] += amount
+            }
+
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "yyyy-MM-dd"
+            dayFormatter.timeZone = TimeZone(identifier: "UTC")
+
+            return totals.compactMap { dayString, amount -> (day: Date, amount: Decimal)? in
+                guard let day = dayFormatter.date(from: dayString) else { return nil }
+                return (day, amount)
+            }.sorted { $0.day > $1.day }
+        }
+    }
+
     // MARK: - Retention / rollup
 
     /// Rolls raw_polls older than `retentionDays` into daily_aggregates
@@ -205,12 +276,14 @@ final class SpendStore: @unchecked Sendable {
         let cutoffDay = Self.dayString(cutoff)
 
         try dbQueue.write { db in
+            // MAX(id), not MAX(polled_at) — see latestPerAttribution's
+            // comment for why.
             let rows = try Row.fetchAll(
                 db,
                 sql: """
                     SELECT r.* FROM raw_polls r
                     INNER JOIN (
-                        SELECT provider, attribution_id, model, day, MAX(polled_at) AS max_polled_at
+                        SELECT provider, attribution_id, model, day, MAX(id) AS max_id
                         FROM raw_polls
                         WHERE day < ?
                         GROUP BY provider, attribution_id, model, day
@@ -219,7 +292,7 @@ final class SpendStore: @unchecked Sendable {
                     AND r.attribution_id = latest.attribution_id
                     AND (r.model IS latest.model)
                     AND r.day = latest.day
-                    AND r.polled_at = latest.max_polled_at
+                    AND r.id = latest.max_id
                     """,
                 arguments: [cutoffDay]
             )
