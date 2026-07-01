@@ -182,7 +182,7 @@ private struct ProviderRow: View {
         case .openai:
             return "Admin key, not your regular API key. platform.openai.com/settings/organization/admin-keys"
         case .openrouter:
-            return "Your regular OpenRouter API key (sk-or-v1-…) — no Management key needed. openrouter.ai/keys"
+            return "Management (Provisioning) key, not your regular API key. openrouter.ai/settings/management-keys"
         }
     }
 }

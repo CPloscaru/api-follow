@@ -27,6 +27,16 @@ struct SpendRecord: Codable, Sendable, Equatable {
     var day: Date
     var amountUSD: Decimal
     var polledAt: Date
+
+    /// Request/token-level detail — only populated by providers whose
+    /// API exposes it (OpenRouter's Activity API does; Anthropic's and
+    /// OpenAI's Cost APIs don't, so these stay nil for those providers).
+    /// All optional/independent rather than one bundled struct, since a
+    /// provider could plausibly expose some of these without all of them.
+    var requests: Int? = nil
+    var promptTokens: Int? = nil
+    var completionTokens: Int? = nil
+    var reasoningTokens: Int? = nil
 }
 
 /// The four "not current" states from design doc decision D6. Distinct

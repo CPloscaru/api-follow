@@ -70,6 +70,26 @@ final class SpendStore: @unchecked Sendable {
             )
         }
 
+        // v2: request/token-level detail (OpenRouter's Activity API
+        // exposes this; Anthropic/OpenAI's Cost APIs don't, so these
+        // stay NULL for those providers' rows). A real migration (not
+        // folded into v1) since the app already has users with a v1
+        // database on disk by the time this was added.
+        migrator.registerMigration("v2") { db in
+            try db.alter(table: "raw_polls") { t in
+                t.add(column: "requests", .integer)
+                t.add(column: "prompt_tokens", .integer)
+                t.add(column: "completion_tokens", .integer)
+                t.add(column: "reasoning_tokens", .integer)
+            }
+            try db.alter(table: "daily_aggregates") { t in
+                t.add(column: "requests", .integer)
+                t.add(column: "prompt_tokens", .integer)
+                t.add(column: "completion_tokens", .integer)
+                t.add(column: "reasoning_tokens", .integer)
+            }
+        }
+
         return migrator
     }
 
@@ -83,8 +103,9 @@ final class SpendStore: @unchecked Sendable {
                 try db.execute(
                     sql: """
                         INSERT INTO raw_polls
-                            (provider, attribution_id, attribution_kind, model, day, amount_usd, polled_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                            (provider, attribution_id, attribution_kind, model, day, amount_usd, polled_at,
+                             requests, prompt_tokens, completion_tokens, reasoning_tokens)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
                         record.provider.rawValue,
@@ -94,6 +115,10 @@ final class SpendStore: @unchecked Sendable {
                         Self.dayString(record.day),
                         "\(record.amountUSD)",
                         Self.dateTimeString(record.polledAt),
+                        record.requests,
+                        record.promptTokens,
+                        record.completionTokens,
+                        record.reasoningTokens,
                     ]
                 )
             }
@@ -264,6 +289,62 @@ final class SpendStore: @unchecked Sendable {
         }
     }
 
+    struct ModelBreakdown {
+        var model: String
+        var amountUSD: Decimal
+        var requests: Int
+        var promptTokens: Int
+        var completionTokens: Int
+        var reasoningTokens: Int
+    }
+
+    /// Per-model totals for the dashboard — only meaningful for
+    /// providers whose adapter populates `model`/`requests`/token
+    /// fields (OpenRouter, currently; Anthropic/OpenAI's Cost APIs
+    /// don't expose this, so they'd return an empty array here). Same
+    /// latest-per-(attribution,model,day) dedup as `dailyTotals`.
+    func modelBreakdown(for provider: Provider, from: Date, to: Date) throws -> [ModelBreakdown] {
+        let fromDay = Self.dayString(from)
+        let toDay = Self.dayString(to)
+
+        return try dbQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT r.model, r.amount_usd, r.requests, r.prompt_tokens, r.completion_tokens, r.reasoning_tokens
+                    FROM raw_polls r
+                    INNER JOIN (
+                        SELECT attribution_id, model, day, MAX(id) AS max_id
+                        FROM raw_polls
+                        WHERE provider = ? AND day >= ? AND day <= ? AND model IS NOT NULL
+                        GROUP BY attribution_id, model, day
+                    ) latest
+                    ON r.attribution_id = latest.attribution_id
+                    AND (r.model IS latest.model)
+                    AND r.day = latest.day
+                    AND r.id = latest.max_id
+                    WHERE r.provider = ?
+                    """,
+                arguments: [provider.rawValue, fromDay, toDay, provider.rawValue]
+            )
+
+            var byModel: [String: ModelBreakdown] = [:]
+            for row in rows {
+                guard let model: String = row["model"], let amountString: String = row["amount_usd"],
+                      let amount = Decimal(string: amountString) else { continue }
+                var entry = byModel[model] ?? ModelBreakdown(model: model, amountUSD: 0, requests: 0, promptTokens: 0, completionTokens: 0, reasoningTokens: 0)
+                entry.amountUSD += amount
+                entry.requests += (row["requests"] as Int?) ?? 0
+                entry.promptTokens += (row["prompt_tokens"] as Int?) ?? 0
+                entry.completionTokens += (row["completion_tokens"] as Int?) ?? 0
+                entry.reasoningTokens += (row["reasoning_tokens"] as Int?) ?? 0
+                byModel[model] = entry
+            }
+
+            return byModel.values.sorted { $0.amountUSD > $1.amountUSD }
+        }
+    }
+
     // MARK: - Retention / rollup
 
     /// Rolls raw_polls older than `retentionDays` into daily_aggregates
@@ -302,10 +383,15 @@ final class SpendStore: @unchecked Sendable {
                 try db.execute(
                     sql: """
                         INSERT INTO daily_aggregates
-                            (provider, attribution_id, attribution_kind, model, day, amount_usd)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                            (provider, attribution_id, attribution_kind, model, day, amount_usd,
+                             requests, prompt_tokens, completion_tokens, reasoning_tokens)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(provider, attribution_id, model, day)
-                        DO UPDATE SET amount_usd = excluded.amount_usd
+                        DO UPDATE SET amount_usd = excluded.amount_usd,
+                            requests = excluded.requests,
+                            prompt_tokens = excluded.prompt_tokens,
+                            completion_tokens = excluded.completion_tokens,
+                            reasoning_tokens = excluded.reasoning_tokens
                         """,
                     arguments: [
                         record.provider.rawValue,
@@ -314,6 +400,10 @@ final class SpendStore: @unchecked Sendable {
                         record.model,
                         Self.dayString(record.day),
                         "\(record.amountUSD)",
+                        record.requests,
+                        record.promptTokens,
+                        record.completionTokens,
+                        record.reasoningTokens,
                     ]
                 )
             }
@@ -371,7 +461,11 @@ final class SpendStore: @unchecked Sendable {
             model: row["model"],
             day: day,
             amountUSD: amount,
-            polledAt: polledAt
+            polledAt: polledAt,
+            requests: row["requests"],
+            promptTokens: row["prompt_tokens"],
+            completionTokens: row["completion_tokens"],
+            reasoningTokens: row["reasoning_tokens"]
         )
     }
 }

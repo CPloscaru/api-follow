@@ -1,27 +1,31 @@
 import Foundation
 
-/// Calls OpenRouter's self-key introspection endpoint (`GET /api/v1/key`).
+/// Calls OpenRouter's Activity API (`GET /api/v1/activity`) — per-day,
+/// per-model usage with request counts and token breakdowns.
 ///
-/// **Revised (2026-07-01): this does NOT use a Management/Provisioning
-/// key.** The original design assumed `/api/v1/activity` (Management key
-/// required) — but Management keys aren't available on every OpenRouter
-/// account (confirmed by the user directly: not available on theirs).
-/// `/api/v1/key` works with a REGULAR OpenRouter API key and returns
-/// that key's own `usage_monthly` — a self-introspection endpoint ("tell
-/// me about myself"), not an org-admin one. This is actually a better
-/// fit than the Activity endpoint: it gives real per-key attribution for
-/// free (you're authenticated AS the key being reported on) and returns
-/// month-to-date directly, matching D11's headline number exactly.
+/// **Revised again (2026-07-01):** the design initially assumed a
+/// Management (Provisioning) key was required and used this endpoint;
+/// then, after the user reported no Management key was available on
+/// their account, this was swapped for the poorer self-key `/api/v1/key`
+/// endpoint (monthly total only, no model/token detail). The user then
+/// confirmed they DO have Management key access after all (it was just
+/// not where they expected in the OpenRouter settings) — so this reverts
+/// to the Activity API, which is what actually satisfies the original
+/// ask: total spend, request counts, per-model breakdown, and prompt/
+/// completion/reasoning token counts, matching what OpenRouter's own
+/// Activity page shows.
 ///
-/// Tradeoff: no per-day or per-model breakdown — `usage_monthly` is a
-/// single running total, not a day-bucketed history. Stored under a
-/// fixed "start of current month" day key (not "today") so repeated
-/// polls within the same month correctly overwrite rather than sum
-/// (summing a cumulative total across multiple days would massively
-/// overcount, the same class of bug the monthToDateTotal query already
-/// guards against for day-bucketed providers). OpenRouter's dashboard
-/// breakdown (T7) will show a monthly figure only, not by-day/by-model,
-/// unless a future account upgrade grants Management key access.
+/// Auth: header `Authorization: Bearer <management_key>` — a Management
+/// key, NOT a regular OpenRouter API key (confirmed via official docs;
+/// Management keys can't even be used for completion requests).
+///
+/// Attribution: the Activity API's documented response items do not
+/// include an `api_key_hash` FIELD (only a query-parameter FILTER by
+/// SHA-256 hash) — so this is still treated as account-level
+/// attribution (`.workspace` kind, "account" ID), same as Anthropic.
+/// Per-key attribution would require pre-computing each tracked key's
+/// hash and issuing one filtered request per key — a steady-state
+/// enhancement, not v1.
 struct OpenRouterAdapter: ProviderAdapter {
     let provider: Provider = .openrouter
     private let httpClient: HTTPClient
@@ -31,7 +35,9 @@ struct OpenRouterAdapter: ProviderAdapter {
     }
 
     func fetchSpend(adminKey: String, since: Date, until: Date) async -> FetchResult {
-        let url = URL(string: "https://openrouter.ai/api/v1/key")!
+        // No date range parameter — omitting `date` returns the last 30
+        // completed UTC days in one response (documented default).
+        let url = URL(string: "https://openrouter.ai/api/v1/activity")!
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(adminKey)", forHTTPHeaderField: "Authorization")
@@ -53,23 +59,29 @@ struct OpenRouterAdapter: ProviderAdapter {
             return classified
         }
 
-        return Self.parse(data, now: until)
+        return Self.parse(data)
     }
 
     /// Strict parsing (D8) — see AnthropicAdapter.parse for rationale.
-    /// `now` is injected (rather than reading `Date()` internally) so
-    /// tests can control which month the record lands in.
-    static func parse(_ data: Data, now: Date) -> FetchResult {
+    static func parse(_ data: Data) -> FetchResult {
         struct Response: Decodable {
-            struct KeyData: Decodable {
-                let usageMonthly: Double
-                let label: String?
+            struct Item: Decodable {
+                let date: String
+                let model: String?
+                let usage: Double
+                let requests: Int?
+                let promptTokens: Int?
+                let completionTokens: Int?
+                let reasoningTokens: Int?
+
                 enum CodingKeys: String, CodingKey {
-                    case usageMonthly = "usage_monthly"
-                    case label
+                    case date, model, usage, requests
+                    case promptTokens = "prompt_tokens"
+                    case completionTokens = "completion_tokens"
+                    case reasoningTokens = "reasoning_tokens"
                 }
             }
-            let data: KeyData
+            let data: [Item]
         }
 
         let decoded: Response
@@ -79,30 +91,38 @@ struct OpenRouterAdapter: ProviderAdapter {
             return .parseError(error)
         }
 
-        guard decoded.data.usageMonthly.isFinite, decoded.data.usageMonthly >= 0 else {
-            return .parseError(ProviderAdapterError.invalidAmount("non-finite or negative usage_monthly: \(decoded.data.usageMonthly)"))
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        dayFormatter.timeZone = TimeZone(identifier: "UTC")
+
+        var records: [SpendRecord] = []
+        for item in decoded.data {
+            guard let day = dayFormatter.date(from: item.date) else {
+                return .parseError(ProviderAdapterError.missingField("date not parseable: \(item.date)"))
+            }
+            guard item.usage.isFinite, item.usage >= 0 else {
+                return .parseError(ProviderAdapterError.invalidAmount("non-finite or negative usage: \(item.usage)"))
+            }
+            // Same double->decimal precision guard as OpenAIAdapter.
+            let amount = Decimal(string: String(format: "%.6f", item.usage)) ?? Decimal(item.usage)
+
+            records.append(
+                SpendRecord(
+                    provider: .openrouter,
+                    attributionID: "account",
+                    attributionKind: .workspace,
+                    model: item.model,
+                    day: day,
+                    amountUSD: amount,
+                    polledAt: Date(),
+                    requests: item.requests,
+                    promptTokens: item.promptTokens,
+                    completionTokens: item.completionTokens,
+                    reasoningTokens: item.reasoningTokens
+                )
+            )
         }
 
-        // Precision guard, same rationale as OpenAIAdapter/original
-        // OpenRouterAdapter: avoid binary-float artifacts leaking into a
-        // number the user reads as a bill amount.
-        let amount = Decimal(string: String(format: "%.6f", decoded.data.usageMonthly)) ?? Decimal(decoded.data.usageMonthly)
-
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        let monthStartComponents = calendar.dateComponents([.year, .month], from: now)
-        let monthStart = calendar.date(from: monthStartComponents) ?? now
-
-        let record = SpendRecord(
-            provider: .openrouter,
-            attributionID: decoded.data.label ?? "self",
-            attributionKind: .apiKey,
-            model: nil,
-            day: monthStart,
-            amountUSD: amount,
-            polledAt: Date()
-        )
-
-        return .success([record])
+        return .success(records)
     }
 }
