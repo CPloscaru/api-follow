@@ -7,6 +7,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var snapshot: SpendSnapshotStore
     @ObservedObject var claudePlanSnapshot: ClaudePlanSnapshotStore
+    @ObservedObject var floatingWidget: FloatingWidgetController
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -28,6 +29,12 @@ struct MenuBarView: View {
             if claudePlanSnapshot.isAvailable {
                 Divider()
                 claudePlanSection
+                Button(floatingWidget.isVisible ? "Hide Claude Widget" : "Show Claude Widget on Desktop") {
+                    floatingWidget.toggle()
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.blue)
             }
 
             Divider()

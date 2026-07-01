@@ -9,6 +9,7 @@ struct APIFollowApp: App {
     private let snapshot: SpendSnapshotStore
     private let claudePlanPoller = ClaudePlanUsagePoller()
     private let claudePlanSnapshot: ClaudePlanSnapshotStore
+    private let floatingWidget: FloatingWidgetController
 
     private static let providers: [Provider] = [.anthropic, .openai, .openrouter]
 
@@ -36,7 +37,9 @@ struct APIFollowApp: App {
         self.snapshot = SpendSnapshotStore(store: store, poller: poller, keychain: keychain, providers: Self.providers)
 
         let claudePlanPoller = self.claudePlanPoller
-        self.claudePlanSnapshot = ClaudePlanSnapshotStore(poller: claudePlanPoller)
+        let claudePlanSnapshot = ClaudePlanSnapshotStore(poller: claudePlanPoller)
+        self.claudePlanSnapshot = claudePlanSnapshot
+        self.floatingWidget = FloatingWidgetController(claudePlanSnapshot: claudePlanSnapshot)
 
         Self.registerLaunchAtLogin()
 
@@ -67,7 +70,7 @@ struct APIFollowApp: App {
 
     var body: some Scene {
         MenuBarExtra("API Follow", systemImage: "dollarsign.circle") {
-            MenuBarView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot)
+            MenuBarView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot, floatingWidget: floatingWidget)
         }
         .menuBarExtraStyle(.window)
 
