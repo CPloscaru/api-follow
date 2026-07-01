@@ -123,6 +123,27 @@ struct SpendStoreTests {
         #expect(recent.contains { $0.amountUSD == 1.00 })
     }
 
+    @Test("dedupedRecords returns the latest poll per attribution/model/day, preserving all fields")
+    func dedupedRecordsPreservesFieldsAndDeduplicates() throws {
+        let store = try Self.makeStore()
+        let day = Date()
+
+        try store.write([Self.record(model: "model-a", day: day, amount: 1.00, polledAt: day.addingTimeInterval(-600))])
+        try store.write([
+            SpendRecord(
+                provider: .anthropic, attributionID: "wrkspc_default", attributionKind: .workspace,
+                model: "model-a", day: day, amountUSD: 2.00, polledAt: day,
+                requests: 5, promptTokens: 100, completionTokens: 50, reasoningTokens: 10, byokUsageUSD: 0.5
+            )
+        ])
+
+        let records = try store.dedupedRecords(for: .anthropic, from: day, to: day)
+        #expect(records.count == 1)
+        #expect(records.first?.amountUSD == 2.00)
+        #expect(records.first?.requests == 5)
+        #expect(records.first?.byokUsageUSD == 0.5)
+    }
+
     @Test("dailyTotals sums per day, deduplicating repeated polls of the same day")
     func dailyTotalsDeduplicatesPerDay() throws {
         let store = try Self.makeStore()

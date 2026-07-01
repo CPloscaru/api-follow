@@ -73,12 +73,14 @@ struct OpenRouterAdapter: ProviderAdapter {
                 let promptTokens: Int?
                 let completionTokens: Int?
                 let reasoningTokens: Int?
+                let byokUsageInference: Double?
 
                 enum CodingKeys: String, CodingKey {
                     case date, model, usage, requests
                     case promptTokens = "prompt_tokens"
                     case completionTokens = "completion_tokens"
                     case reasoningTokens = "reasoning_tokens"
+                    case byokUsageInference = "byok_usage_inference"
                 }
             }
             let data: [Item]
@@ -105,6 +107,7 @@ struct OpenRouterAdapter: ProviderAdapter {
             }
             // Same double->decimal precision guard as OpenAIAdapter.
             let amount = Decimal(string: String(format: "%.6f", item.usage)) ?? Decimal(item.usage)
+            let byokAmount = item.byokUsageInference.flatMap { Decimal(string: String(format: "%.6f", $0)) }
 
             records.append(
                 SpendRecord(
@@ -118,7 +121,8 @@ struct OpenRouterAdapter: ProviderAdapter {
                     requests: item.requests,
                     promptTokens: item.promptTokens,
                     completionTokens: item.completionTokens,
-                    reasoningTokens: item.reasoningTokens
+                    reasoningTokens: item.reasoningTokens,
+                    byokUsageUSD: byokAmount
                 )
             )
         }

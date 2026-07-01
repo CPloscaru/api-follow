@@ -37,6 +37,11 @@ struct SpendRecord: Codable, Sendable, Equatable {
     var promptTokens: Int? = nil
     var completionTokens: Int? = nil
     var reasoningTokens: Int? = nil
+    /// BYOK ("bring your own key") inference cost in USD — OpenRouter's
+    /// Activity API splits spend into OpenRouter-billed vs. BYOK, which
+    /// is what its "Usage type" chart shows. Nil for providers that
+    /// don't have this concept (Anthropic/OpenAI).
+    var byokUsageUSD: Decimal? = nil
 }
 
 /// The four "not current" states from design doc decision D6. Distinct

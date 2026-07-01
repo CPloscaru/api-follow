@@ -90,6 +90,17 @@ final class SpendStore: @unchecked Sendable {
             }
         }
 
+        // v3: BYOK vs subscription spend split, backing the "Usage type"
+        // chart (OpenRouter's Activity API only — nil for other providers).
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "raw_polls") { t in
+                t.add(column: "byok_usage_usd", .text)
+            }
+            try db.alter(table: "daily_aggregates") { t in
+                t.add(column: "byok_usage_usd", .text)
+            }
+        }
+
         return migrator
     }
 
@@ -104,8 +115,8 @@ final class SpendStore: @unchecked Sendable {
                     sql: """
                         INSERT INTO raw_polls
                             (provider, attribution_id, attribution_kind, model, day, amount_usd, polled_at,
-                             requests, prompt_tokens, completion_tokens, reasoning_tokens)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             requests, prompt_tokens, completion_tokens, reasoning_tokens, byok_usage_usd)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
                         record.provider.rawValue,
@@ -119,6 +130,7 @@ final class SpendStore: @unchecked Sendable {
                         record.promptTokens,
                         record.completionTokens,
                         record.reasoningTokens,
+                        record.byokUsageUSD.map { "\($0)" },
                     ]
                 )
             }
@@ -289,6 +301,39 @@ final class SpendStore: @unchecked Sendable {
         }
     }
 
+    /// Deduplicated records (latest poll per attribution/model/day, same
+    /// rule as `dailyTotals`/`monthToDateTotal`) for a date range, with
+    /// every field intact — the general-purpose query backing the
+    /// dashboard's charts (spend-by-model, usage-type, token-breakdown,
+    /// request-volume-by-model), which each pivot this same data
+    /// differently rather than needing 4 separate SQL queries.
+    func dedupedRecords(for provider: Provider, from: Date, to: Date) throws -> [SpendRecord] {
+        let fromDay = Self.dayString(from)
+        let toDay = Self.dayString(to)
+
+        return try dbQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT r.* FROM raw_polls r
+                    INNER JOIN (
+                        SELECT attribution_id, model, day, MAX(id) AS max_id
+                        FROM raw_polls
+                        WHERE provider = ? AND day >= ? AND day <= ?
+                        GROUP BY attribution_id, model, day
+                    ) latest
+                    ON r.attribution_id = latest.attribution_id
+                    AND (r.model IS latest.model)
+                    AND r.day = latest.day
+                    AND r.id = latest.max_id
+                    WHERE r.provider = ?
+                    """,
+                arguments: [provider.rawValue, fromDay, toDay, provider.rawValue]
+            )
+            return rows.compactMap(Self.record(from:))
+        }
+    }
+
     struct ModelBreakdown {
         var model: String
         var amountUSD: Decimal
@@ -384,14 +429,15 @@ final class SpendStore: @unchecked Sendable {
                     sql: """
                         INSERT INTO daily_aggregates
                             (provider, attribution_id, attribution_kind, model, day, amount_usd,
-                             requests, prompt_tokens, completion_tokens, reasoning_tokens)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             requests, prompt_tokens, completion_tokens, reasoning_tokens, byok_usage_usd)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(provider, attribution_id, model, day)
                         DO UPDATE SET amount_usd = excluded.amount_usd,
                             requests = excluded.requests,
                             prompt_tokens = excluded.prompt_tokens,
                             completion_tokens = excluded.completion_tokens,
-                            reasoning_tokens = excluded.reasoning_tokens
+                            reasoning_tokens = excluded.reasoning_tokens,
+                            byok_usage_usd = excluded.byok_usage_usd
                         """,
                     arguments: [
                         record.provider.rawValue,
@@ -404,6 +450,7 @@ final class SpendStore: @unchecked Sendable {
                         record.promptTokens,
                         record.completionTokens,
                         record.reasoningTokens,
+                        record.byokUsageUSD.map { "\($0)" },
                     ]
                 )
             }
@@ -454,6 +501,8 @@ final class SpendStore: @unchecked Sendable {
         let polledAtString: String? = row["polled_at"]
         let polledAt = polledAtString.flatMap { ISO8601DateFormatter().date(from: $0) } ?? day
 
+        let byokUsageString: String? = row["byok_usage_usd"]
+
         return SpendRecord(
             provider: provider,
             attributionID: attributionID,
@@ -465,7 +514,8 @@ final class SpendStore: @unchecked Sendable {
             requests: row["requests"],
             promptTokens: row["prompt_tokens"],
             completionTokens: row["completion_tokens"],
-            reasoningTokens: row["reasoning_tokens"]
+            reasoningTokens: row["reasoning_tokens"],
+            byokUsageUSD: byokUsageString.flatMap { Decimal(string: $0) }
         )
     }
 }
