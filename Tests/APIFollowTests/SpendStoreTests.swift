@@ -86,6 +86,19 @@ struct SpendStoreTests {
         #expect(total == 15.50)
     }
 
+    @Test("monthToDateTotals keeps a per-provider breakdown, not just the sum")
+    func monthToDateTotalsKeepsBreakdown() throws {
+        let store = try Self.makeStore()
+        let now = Date()
+
+        try store.write([Self.record(provider: .anthropic, attributionID: "wrkspc_1", day: now, amount: 10.00, polledAt: now)])
+        try store.write([Self.record(provider: .openai, attributionID: "key_1", attributionKind: .apiKey, day: now, amount: 5.50, polledAt: now)])
+
+        let totals = try store.monthToDateTotals(providers: [.anthropic, .openai], now: now)
+        #expect(totals[.anthropic] == 10.00)
+        #expect(totals[.openai] == 5.50)
+    }
+
     @Test("monthToDateTotal excludes days before the start of the month")
     func monthToDateTotalExcludesPriorMonth() throws {
         let store = try Self.makeStore()

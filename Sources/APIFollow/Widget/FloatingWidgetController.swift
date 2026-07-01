@@ -1,19 +1,25 @@
 import AppKit
 import Combine
 
-/// Owns the floating widget panel's lifecycle: show/hide, and
+/// Owns the floating overlay panel's lifecycle: show/hide, and
 /// remembering where the user dragged it so it reopens in the same
 /// spot. AppKit (`NSPanel`/`NSScreen`) is main-thread-only, so this
 /// whole controller is MainActor-isolated.
+///
+/// Generalized from an earlier Claude-only widget per direct user
+/// request — the panel now shows everything connected (spend snapshot
+/// + Claude plan), not just Claude.
 @MainActor
 final class FloatingWidgetController: ObservableObject {
     @Published private(set) var isVisible = false
 
     private var panel: FloatingWidgetPanel?
+    private let snapshot: SpendSnapshotStore
     private let claudePlanSnapshot: ClaudePlanSnapshotStore
-    private static let positionDefaultsKey = "ClaudePlanWidget.origin"
+    private static let positionDefaultsKey = "GlobalOverlay.origin"
 
-    init(claudePlanSnapshot: ClaudePlanSnapshotStore) {
+    init(snapshot: SpendSnapshotStore, claudePlanSnapshot: ClaudePlanSnapshotStore) {
+        self.snapshot = snapshot
         self.claudePlanSnapshot = claudePlanSnapshot
     }
 
@@ -30,7 +36,7 @@ final class FloatingWidgetController: ObservableObject {
         if let existing = self.panel {
             panel = existing
         } else {
-            let view = ClaudePlanWidgetView(claudePlanSnapshot: claudePlanSnapshot, onClose: { [weak self] in self?.hide() })
+            let view = GlobalOverlayView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot, onClose: { [weak self] in self?.hide() })
             panel = FloatingWidgetPanel(rootView: view)
             self.panel = panel
         }
@@ -39,7 +45,7 @@ final class FloatingWidgetController: ObservableObject {
             panel.setFrameOrigin(origin)
         } else if let screen = NSScreen.main {
             let frame = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: frame.maxX - 240, y: frame.maxY - 200))
+            panel.setFrameOrigin(NSPoint(x: frame.maxX - 260, y: frame.maxY - 260))
         }
 
         panel.orderFrontRegardless()

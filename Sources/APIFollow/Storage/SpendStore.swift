@@ -180,11 +180,20 @@ final class SpendStore: @unchecked Sendable {
     /// would count the same day's cumulative total once per poll and
     /// wildly overstate spend.
     func monthToDateTotal(providers: [Provider], now: Date) throws -> Decimal {
+        try monthToDateTotals(providers: providers, now: now).values.reduce(0, +)
+    }
+
+    /// Same dedup rule as `monthToDateTotal`, but keeps the per-provider
+    /// breakdown instead of collapsing to one number — backs the
+    /// popover's per-provider rows and the global overlay, so at a
+    /// glance you can see e.g. "OpenRouter $1.20" without opening the
+    /// full Dashboard.
+    func monthToDateTotals(providers: [Provider], now: Date) throws -> [Provider: Decimal] {
         let monthStart = Self.startOfMonth(for: now)
         let monthStartDay = Self.dayString(monthStart)
 
         return try dbQueue.read { db in
-            var total: Decimal = 0
+            var totals: [Provider: Decimal] = [:]
             for provider in providers {
                 // MAX(id), not MAX(polled_at) — see latestPerAttribution's
                 // comment for why: second-precision timestamps can tie
@@ -209,13 +218,15 @@ final class SpendStore: @unchecked Sendable {
                         """,
                     arguments: [provider.rawValue, monthStartDay, provider.rawValue]
                 )
+                var providerTotal: Decimal = 0
                 for row in rows {
                     if let amountString: String = row["amount_usd"], let amount = Decimal(string: amountString) {
-                        total += amount
+                        providerTotal += amount
                     }
                 }
+                totals[provider] = providerTotal
             }
-            return total
+            return totals
         }
     }
 

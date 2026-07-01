@@ -15,6 +15,10 @@ import Combine
 @MainActor
 final class SpendSnapshotStore: ObservableObject {
     @Published private(set) var monthToDateTotal: Decimal = 0
+    /// Per-provider month-to-date spend — backs the popover's provider
+    /// rows so each shows its own number ("OpenRouter $1.20"), not just
+    /// a generic "OK" status word.
+    @Published private(set) var perProviderTotals: [Provider: Decimal] = [:]
     @Published private(set) var statuses: [Provider: ProviderStatus] = [:]
     @Published private(set) var lastRefreshedAt: Date?
     /// Remaining credit balance per provider — only populated for
@@ -67,7 +71,8 @@ final class SpendSnapshotStore: ObservableObject {
     func refresh() async {
         let statuses = await poller.allStatuses()
         let balances = await poller.allBalances()
-        let total = (try? store.monthToDateTotal(providers: providers, now: Date())) ?? monthToDateTotal
+        let perProviderTotals = (try? store.monthToDateTotals(providers: providers, now: Date())) ?? self.perProviderTotals
+        let total = perProviderTotals.values.reduce(0, +)
         var configured: Set<Provider> = []
         for provider in providers {
             if let key = try? keychain.read(for: provider), !key.isEmpty {
@@ -77,6 +82,7 @@ final class SpendSnapshotStore: ObservableObject {
 
         self.statuses = statuses
         self.balances = balances
+        self.perProviderTotals = perProviderTotals
         self.monthToDateTotal = total
         self.keysConfigured = configured
         self.lastRefreshedAt = Date()

@@ -16,22 +16,34 @@ import SwiftUI
 /// fal.ai (image/video generation), and the sparkle already established
 /// for Claude elsewhere in this app (the widget, MenuBarView's section).
 struct MenuBarLabelView: View {
+    /// Real finding from user feedback: with a crowded menu bar (many
+    /// other system items), the full condensed text got silently
+    /// clipped by macOS — the user saw only one segment, not a clean
+    /// "shows what fits" degradation. Default OFF: icon + status color
+    /// only, which is compact enough to never fight for space. Users
+    /// who want the fuller text can opt in via the popover's settings
+    /// gear, understanding their menu bar has room for it.
+    static let showCondensedTextKey = "showCondensedMenuBarText"
+
     @ObservedObject var snapshot: SpendSnapshotStore
     @ObservedObject var claudePlanSnapshot: ClaudePlanSnapshotStore
+    @AppStorage(MenuBarLabelView.showCondensedTextKey) private var showCondensedText = false
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: snapshot.overallReliability.systemImageName)
                 .foregroundStyle(reliabilityColor)
 
-            if segments.isEmpty {
-                Text(Self.formatAmount(snapshot.monthToDateTotal))
-            } else {
-                ForEach(segments) { segment in
-                    HStack(spacing: 2) {
-                        Image(systemName: segment.icon)
-                            .foregroundStyle(segment.color)
-                        Text(segment.text)
+            if showCondensedText {
+                if segments.isEmpty {
+                    Text(Self.formatAmount(snapshot.monthToDateTotal))
+                } else {
+                    ForEach(segments) { segment in
+                        HStack(spacing: 2) {
+                            Image(systemName: segment.icon)
+                                .foregroundStyle(segment.color)
+                            Text(segment.text)
+                        }
                     }
                 }
             }

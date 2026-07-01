@@ -44,7 +44,7 @@ struct APIFollowApp: App {
         let claudePlanPoller = self.claudePlanPoller
         let claudePlanSnapshot = ClaudePlanSnapshotStore(poller: claudePlanPoller)
         self.claudePlanSnapshot = claudePlanSnapshot
-        self.floatingWidget = FloatingWidgetController(claudePlanSnapshot: claudePlanSnapshot)
+        self.floatingWidget = FloatingWidgetController(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot)
 
         Self.registerLaunchAtLogin()
 

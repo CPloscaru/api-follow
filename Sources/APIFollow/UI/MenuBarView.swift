@@ -9,6 +9,8 @@ struct MenuBarView: View {
     @ObservedObject var claudePlanSnapshot: ClaudePlanSnapshotStore
     @ObservedObject var floatingWidget: FloatingWidgetController
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(MenuBarLabelView.showCondensedTextKey) private var showCondensedMenuBarText = false
+    @State private var showSettings = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -29,31 +31,78 @@ struct MenuBarView: View {
             if claudePlanSnapshot.isAvailable {
                 Divider()
                 claudePlanSection
-                Button(floatingWidget.isVisible ? "Hide Claude Widget" : "Show Claude Widget on Desktop") {
-                    floatingWidget.toggle()
-                }
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundStyle(.blue)
             }
 
             Divider()
 
+            actionButtons
+
             HStack {
                 if let lastRefreshedAt = snapshot.lastRefreshedAt {
                     Text("As of \(lastRefreshedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Dashboard") { openWindow(id: "dashboard") }
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.blue)
+                Button {
+                    showSettings.toggle()
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .popover(isPresented: $showSettings) {
+                    settingsPopover
+                }
             }
         }
         .padding(16)
         .frame(width: 280)
+    }
+
+    /// Modern, visible action buttons — replaces the earlier plain-text
+    /// links per feedback that they were too subtle to notice at a
+    /// glance. Bordered + icon + tint, side by side.
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            Button {
+                floatingWidget.toggle()
+            } label: {
+                Label(floatingWidget.isVisible ? "Hide Overlay" : "Show Overlay", systemImage: floatingWidget.isVisible ? "eye.slash.fill" : "eye.fill")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.purple)
+
+            Button {
+                openWindow(id: "dashboard")
+            } label: {
+                Label("Dashboard", systemImage: "chart.bar.fill")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+        }
+    }
+
+    private var settingsPopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Menu Bar")
+                .font(.caption)
+                .bold()
+            Toggle("Show balances/usage as text", isOn: $showCondensedMenuBarText)
+                .font(.caption)
+                .toggleStyle(.switch)
+            Text("Off by default — a crowded menu bar can clip the condensed text. Icon + status color always show regardless of this setting.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(width: 220)
     }
 
     /// Only shown when Claude Code's OAuth token was found on this
@@ -188,14 +237,37 @@ private struct ProviderRow: View {
     private var hasKey: Bool { snapshot.keysConfigured.contains(provider) }
     private var status: ProviderStatus { snapshot.statuses[provider] ?? .staleTransient(lastPolledAt: nil) }
 
+    /// The single number worth showing at a glance for this provider —
+    /// balance (remaining credits) if it has one, otherwise its own
+    /// month-to-date spend. Real finding from user feedback: the row
+    /// used to show only a status word ("OK"), which told you the
+    /// provider was reachable but nothing about where you actually
+    /// stand — you had to open the full Dashboard just to see a number.
+    private var glanceAmount: Decimal? {
+        snapshot.balances[provider] ?? snapshot.perProviderTotals[provider]
+    }
+
+    private var glanceLabel: String {
+        snapshot.balances[provider] != nil ? "left" : "MTD"
+    }
+
     var body: some View {
         if hasKey && !isEditing {
             HStack {
                 Text(MenuBarView.providerLabel(provider))
                 Spacer()
-                Text(MenuBarView.statusLabel(status))
-                    .font(.caption)
-                    .foregroundStyle(MenuBarView.statusColor(status))
+                if let amount = glanceAmount {
+                    Text(Self.formatAmount(amount))
+                        .font(.caption)
+                        .monospacedDigit()
+                    Text(glanceLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Circle()
+                    .fill(Self.statusDotColor(status))
+                    .frame(width: 6, height: 6)
+                    .help(MenuBarView.statusLabel(status))
                 Button("Change key") { isEditing = true }
                     .buttonStyle(.plain)
                     .font(.caption2)
@@ -250,5 +322,18 @@ private struct ProviderRow: View {
         case .fal:
             return "ADMIN-scope key, not your regular API-scope key. fal.ai → API Keys → create with ADMIN scope."
         }
+    }
+
+    private static func statusDotColor(_ status: ProviderStatus) -> Color {
+        if status.needsAttention { return .red }
+        if status.isStale { return .orange }
+        return .green
+    }
+
+    private static func formatAmount(_ amount: Decimal) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 }
