@@ -1,38 +1,70 @@
 import SwiftUI
 
-/// The always-visible menu bar text — deliberately dense (multiple
+/// The always-visible menu bar content — deliberately dense (multiple
 /// segments in one label) per explicit request: OpenRouter balance,
 /// fal.ai balance, Claude session/weekly %, each shown only once that
 /// provider actually has data (never a placeholder "$0.00" for an
 /// unconfigured provider, which would misrepresent "no data yet" as
 /// "zero balance").
+///
+/// Uses a distinct SF Symbol + tint color per segment instead of text
+/// prefixes ("OR", "Fal", "C") — icons are scannable at a glance without
+/// reading, which plain abbreviated text isn't. No custom brand logos
+/// (SF Symbols only has generic shapes, not third-party marks), so each
+/// icon is a reasonable generic stand-in: a network glyph for
+/// OpenRouter (it routes between providers), a photo-stack glyph for
+/// fal.ai (image/video generation), and the sparkle already established
+/// for Claude elsewhere in this app (the widget, MenuBarView's section).
 struct MenuBarLabelView: View {
     @ObservedObject var snapshot: SpendSnapshotStore
     @ObservedObject var claudePlanSnapshot: ClaudePlanSnapshotStore
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Image(systemName: snapshot.overallReliability.systemImageName)
+                .foregroundStyle(reliabilityColor)
+
             if segments.isEmpty {
                 Text(Self.formatAmount(snapshot.monthToDateTotal))
             } else {
-                Text(segments.joined(separator: " · "))
+                ForEach(segments) { segment in
+                    HStack(spacing: 2) {
+                        Image(systemName: segment.icon)
+                            .foregroundStyle(segment.color)
+                        Text(segment.text)
+                    }
+                }
             }
         }
     }
 
-    private var segments: [String] {
-        var parts: [String] = []
+    private struct Segment: Identifiable {
+        let id: String
+        let icon: String
+        let color: Color
+        let text: String
+    }
+
+    private var segments: [Segment] {
+        var parts: [Segment] = []
         if let balance = snapshot.balances[.openrouter] {
-            parts.append("OR \(Self.formatAmount(balance))")
+            parts.append(Segment(id: "or", icon: "network", color: .purple, text: Self.formatAmount(balance)))
         }
         if let balance = snapshot.balances[.fal] {
-            parts.append("Fal \(Self.formatAmount(balance))")
+            parts.append(Segment(id: "fal", icon: "photo.stack", color: .teal, text: Self.formatAmount(balance)))
         }
         if let usage = claudePlanSnapshot.usage {
-            parts.append("C \(Int(usage.sessionPercentage))%/\(Int(usage.weeklyPercentage))%")
+            parts.append(Segment(id: "claude", icon: "sparkle", color: .orange, text: "\(Int(usage.sessionPercentage))%·\(Int(usage.weeklyPercentage))%"))
         }
         return parts
+    }
+
+    private var reliabilityColor: Color {
+        switch snapshot.overallReliability {
+        case .ok: return .green
+        case .syncing: return .orange
+        case .needsAttention: return .red
+        }
     }
 
     private static func formatAmount(_ amount: Decimal) -> String {
