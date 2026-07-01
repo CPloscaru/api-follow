@@ -6,6 +6,7 @@ import SwiftUI
 /// in-memory snapshot read pattern (no disk hit on render).
 struct MenuBarView: View {
     @ObservedObject var snapshot: SpendSnapshotStore
+    @ObservedObject var claudePlanSnapshot: ClaudePlanSnapshotStore
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -22,6 +23,11 @@ struct MenuBarView: View {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+
+            if claudePlanSnapshot.isAvailable {
+                Divider()
+                claudePlanSection
             }
 
             Divider()
@@ -41,6 +47,44 @@ struct MenuBarView: View {
         }
         .padding(16)
         .frame(width: 280)
+    }
+
+    /// Only shown when Claude Code's OAuth token was found on this
+    /// machine (opportunistic — most users won't have it). Session (5h)
+    /// and weekly (7d) only — no per-model breakdown, see
+    /// ClaudePlanUsage's doc comment for why.
+    private var claudePlanSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Claude Plan")
+                .font(.subheadline)
+                .bold()
+            if let usage = claudePlanSnapshot.usage {
+                planBar(label: "Session (5h)", percentage: usage.sessionPercentage, resetAt: usage.sessionResetAt)
+                planBar(label: "Weekly", percentage: usage.weeklyPercentage, resetAt: usage.weeklyResetAt)
+            } else {
+                Text("Checking…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func planBar(label: String, percentage: Double, resetAt: Date) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label)
+                    .font(.caption)
+                Spacer()
+                Text("\(Int(percentage))%")
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            ProgressView(value: min(max(percentage, 0), 100), total: 100)
+                .tint(percentage >= 90 ? .red : (percentage >= 75 ? .orange : .green))
+            Text("Resets \(resetAt.formatted(.relative(presentation: .named)))")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var headline: some View {

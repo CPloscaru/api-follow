@@ -7,6 +7,8 @@ struct APIFollowApp: App {
     private let keychain = KeychainStore()
     private let poller: Poller
     private let snapshot: SpendSnapshotStore
+    private let claudePlanPoller = ClaudePlanUsagePoller()
+    private let claudePlanSnapshot: ClaudePlanSnapshotStore
 
     private static let providers: [Provider] = [.anthropic, .openai, .openrouter]
 
@@ -33,6 +35,9 @@ struct APIFollowApp: App {
         self.poller = poller
         self.snapshot = SpendSnapshotStore(store: store, poller: poller, keychain: keychain, providers: Self.providers)
 
+        let claudePlanPoller = self.claudePlanPoller
+        self.claudePlanSnapshot = ClaudePlanSnapshotStore(poller: claudePlanPoller)
+
         Self.registerLaunchAtLogin()
 
         Task {
@@ -49,11 +54,20 @@ struct APIFollowApp: App {
                 try? await Task.sleep(for: .seconds(30))
             }
         }
+        Task {
+            await claudePlanPoller.start()
+        }
+        Task { @MainActor [claudePlanSnapshot] in
+            while true {
+                await claudePlanSnapshot.refresh()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
     }
 
     var body: some Scene {
         MenuBarExtra("API Follow", systemImage: "dollarsign.circle") {
-            MenuBarView(snapshot: snapshot)
+            MenuBarView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot)
         }
         .menuBarExtraStyle(.window)
 
