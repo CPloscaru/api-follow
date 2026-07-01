@@ -30,7 +30,7 @@ final class FloatingWidgetController: ObservableObject {
         if let existing = self.panel {
             panel = existing
         } else {
-            let view = ClaudePlanWidgetView(claudePlanSnapshot: claudePlanSnapshot)
+            let view = ClaudePlanWidgetView(claudePlanSnapshot: claudePlanSnapshot, onClose: { [weak self] in self?.hide() })
             panel = FloatingWidgetPanel(rootView: view)
             self.panel = panel
         }

@@ -132,6 +132,7 @@ struct MenuBarView: View {
         case .anthropic: return "Anthropic"
         case .openai: return "OpenAI"
         case .openrouter: return "OpenRouter"
+        case .fal: return "fal.ai"
         }
     }
 
@@ -246,6 +247,8 @@ private struct ProviderRow: View {
             return "Admin key, not your regular API key. platform.openai.com/settings/organization/admin-keys"
         case .openrouter:
             return "Management (Provisioning) key, not your regular API key. openrouter.ai/settings/management-keys"
+        case .fal:
+            return "ADMIN-scope key, not your regular API-scope key. fal.ai → API Keys → create with ADMIN scope."
         }
     }
 }

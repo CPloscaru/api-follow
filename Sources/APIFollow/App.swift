@@ -11,7 +11,7 @@ struct APIFollowApp: App {
     private let claudePlanSnapshot: ClaudePlanSnapshotStore
     private let floatingWidget: FloatingWidgetController
 
-    private static let providers: [Provider] = [.anthropic, .openai, .openrouter]
+    private static let providers: [Provider] = [.anthropic, .openai, .openrouter, .fal]
 
     init() {
         let store: SpendStore
@@ -31,6 +31,7 @@ struct APIFollowApp: App {
             .anthropic: AnthropicAdapter(),
             .openai: OpenAIAdapter(),
             .openrouter: OpenRouterAdapter(),
+            .fal: FalAdapter(),
         ]
         let poller = Poller(store: store, keychain: keychain, adapters: adapters)
         self.poller = poller

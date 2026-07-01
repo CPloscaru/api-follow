@@ -6,6 +6,11 @@ import SwiftUI
 /// other context around it.
 struct ClaudePlanWidgetView: View {
     @ObservedObject var claudePlanSnapshot: ClaudePlanSnapshotStore
+    /// Closes the floating panel. Injected rather than reaching back
+    /// into `FloatingWidgetController` directly — this view has no
+    /// business knowing how it's hosted (panel vs. some future
+    /// presentation), just that "close" is a thing it can ask for.
+    var onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -24,6 +29,13 @@ struct ClaudePlanWidgetView: View {
                 .buttonStyle(.plain)
                 .disabled(claudePlanSnapshot.isRefreshing)
                 .help("Refresh now — sends one tiny real message to check current usage")
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Hide widget")
             }
 
             if let usage = claudePlanSnapshot.usage {
