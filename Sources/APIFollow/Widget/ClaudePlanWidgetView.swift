@@ -15,6 +15,15 @@ struct ClaudePlanWidgetView: View {
                 Text("Claude")
                     .font(.headline)
                 Spacer()
+                Button {
+                    Task { await claudePlanSnapshot.refreshNow() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .disabled(claudePlanSnapshot.isRefreshing)
+                .help("Refresh now — sends one tiny real message to check current usage")
             }
 
             if let usage = claudePlanSnapshot.usage {

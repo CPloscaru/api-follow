@@ -62,9 +62,21 @@ struct MenuBarView: View {
     /// ClaudePlanUsage's doc comment for why.
     private var claudePlanSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Claude Plan")
-                .font(.subheadline)
-                .bold()
+            HStack {
+                Text("Claude Plan")
+                    .font(.subheadline)
+                    .bold()
+                Spacer()
+                Button {
+                    Task { await claudePlanSnapshot.refreshNow() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .disabled(claudePlanSnapshot.isRefreshing)
+                .help("Refresh now — sends one tiny real message to check current usage")
+            }
             if let usage = claudePlanSnapshot.usage {
                 planBar(label: "Session (5h)", percentage: usage.sessionPercentage, resetAt: usage.sessionResetAt)
                 planBar(label: "Weekly", percentage: usage.weeklyPercentage, resetAt: usage.weeklyResetAt)
