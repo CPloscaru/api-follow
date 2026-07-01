@@ -38,12 +38,20 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
 
-                if records.isEmpty {
-                    emptyState
+                if isLoading && records.isEmpty {
+                    loadingState
                 } else {
+                    // Structure is always shown once the first load
+                    // completes — same as OpenRouter's own Activity page,
+                    // which keeps every card/chart visible at zero rather
+                    // than collapsing to a blank state when a window has
+                    // no activity. Whether a SECTION exists at all is a
+                    // provider-capability question ("does this provider's
+                    // API expose per-model/BYOK data at all"), not a
+                    // data-presence question ("is there data right now").
                     kpiRow
 
-                    if hasModelData {
+                    if providerSupportsModelBreakdown {
                         chartCard(title: "Usage by model", subtitle: "Spend per day, by model") {
                             spendByModelChart
                         }
@@ -53,18 +61,22 @@ struct DashboardView: View {
                         chartCard(title: "Token breakdown", subtitle: "Prompt / completion / reasoning tokens per day") {
                             tokenBreakdownChart
                         }
+                    } else {
+                        chartCard(title: "Spend by day", subtitle: "No per-model breakdown for this provider") {
+                            totalSpendChart
+                        }
                     }
 
-                    if hasByokData {
+                    if providerSupportsByokBreakdown {
                         chartCard(title: "Usage type", subtitle: "BYOK vs. OpenRouter-billed spend per day") {
                             usageTypeChart
                         }
                     }
 
-                    if !hasModelData {
-                        chartCard(title: "Spend by day", subtitle: "No per-model breakdown for this provider") {
-                            totalSpendChart
-                        }
+                    if records.isEmpty {
+                        Text("No activity for \(MenuBarView.providerLabel(selectedProvider)) in the last \(rangeDays) days — cards and charts above are showing their zero/empty state, not an error.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     unavailableNote
@@ -210,12 +222,10 @@ struct DashboardView: View {
 
     // MARK: - Empty / unavailable
 
-    private var emptyState: some View {
+    private var loadingState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "chart.bar.xaxis")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text(isLoading ? "Loading…" : "No spend data yet for \(MenuBarView.providerLabel(selectedProvider)).")
+            ProgressView()
+            Text("Loading…")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
@@ -272,12 +282,18 @@ struct DashboardView: View {
         var amount: Decimal
     }
 
-    private var hasModelData: Bool {
-        records.contains { $0.model != nil }
+    /// Which chart sections a PROVIDER can support — a capability
+    /// question, not "does data exist right now". A quiet OpenRouter
+    /// account still gets the Usage-by-model/Token-breakdown/Usage-type
+    /// sections (rendered empty), because its API exposes those
+    /// dimensions; Anthropic/OpenAI never get them, because their Cost
+    /// APIs don't, regardless of how much data is polled.
+    private var providerSupportsModelBreakdown: Bool {
+        selectedProvider == .openrouter
     }
 
-    private var hasByokData: Bool {
-        records.contains { $0.byokUsageUSD != nil }
+    private var providerSupportsByokBreakdown: Bool {
+        selectedProvider == .openrouter
     }
 
     private var totalSpend: Decimal {
