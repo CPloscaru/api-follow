@@ -1,0 +1,81 @@
+import SwiftUI
+import ServiceManagement
+
+@main
+struct APIFollowApp: App {
+    private let store: SpendStore
+    private let keychain = KeychainStore()
+    private let poller: Poller
+    private let snapshot: SpendSnapshotStore
+
+    private static let providers: [Provider] = [.anthropic, .openai]
+
+    init() {
+        let store: SpendStore
+        do {
+            store = try SpendStore(path: Self.databasePath())
+        } catch {
+            // Falling back to in-memory keeps the app usable (you can
+            // still see live data this session) rather than crashing on
+            // launch over a local storage problem — but nothing persists
+            // across restarts until the underlying issue is fixed.
+            store = (try? SpendStore(inMemory: ())) ?? { fatalError("failed to create even an in-memory SpendStore: \(error)") }()
+        }
+        self.store = store
+
+        let keychain = KeychainStore()
+        let adapters: [Provider: ProviderAdapter] = [
+            .anthropic: AnthropicAdapter(),
+            .openai: OpenAIAdapter(),
+        ]
+        let poller = Poller(store: store, keychain: keychain, adapters: adapters)
+        self.poller = poller
+        self.snapshot = SpendSnapshotStore(store: store, poller: poller, providers: Self.providers)
+
+        Self.registerLaunchAtLogin()
+
+        Task {
+            await poller.start()
+        }
+        Task { @MainActor [snapshot] in
+            // Cheap local-state refresh loop — reads from the poller's
+            // already-updated status map and the DB Poller just wrote to;
+            // does not itself call any provider API. Runs more often than
+            // the 5-min poll interval so the UI reflects a poll (or a
+            // manual refresh, or a wake-triggered poll) promptly.
+            while true {
+                await snapshot.refresh()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    var body: some Scene {
+        MenuBarExtra("API Follow", systemImage: "dollarsign.circle") {
+            MenuBarView(snapshot: snapshot)
+        }
+        .menuBarExtraStyle(.window)
+    }
+
+    private static func databasePath() -> String {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let directory = appSupport.appendingPathComponent("APIFollow", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("spend.sqlite").path
+    }
+
+    /// D14: an "ambient" menu bar tool that requires manually relaunching
+    /// after every reboot isn't ambient — register with SMAppService so
+    /// it starts automatically at login. Best-effort: a failure here
+    /// (e.g. missing entitlement in a dev/unsigned build) shouldn't
+    /// prevent the app from running this session.
+    private static func registerLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status != .enabled {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            // Non-fatal — see doc comment above.
+        }
+    }
+}
