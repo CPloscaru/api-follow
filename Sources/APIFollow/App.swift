@@ -58,13 +58,15 @@ struct APIFollowApp: App {
             }
         }
         Task {
-            await claudePlanPoller.start()
-        }
-        Task { @MainActor [claudePlanSnapshot] in
-            while true {
+            // Push-based, not poll-based: the moment pollOnce() (either
+            // the automatic 20-min cycle or a manual "refresh now")
+            // finishes, it calls this directly — the UI updates as soon
+            // as the real answer arrives, not on some unrelated timer
+            // that might still be mid-wait when the response lands.
+            await claudePlanPoller.setOnUpdate { @MainActor [claudePlanSnapshot] in
                 await claudePlanSnapshot.refresh()
-                try? await Task.sleep(for: .seconds(30))
             }
+            await claudePlanPoller.start()
         }
     }
 

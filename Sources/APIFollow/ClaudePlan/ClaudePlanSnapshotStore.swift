@@ -24,11 +24,13 @@ final class ClaudePlanSnapshotStore: ObservableObject {
     /// Manual "refresh now" — burns a tiny real message against the
     /// user's quota immediately, rather than waiting up to 20 minutes
     /// for the next scheduled poll (see ClaudePlanUsagePoller's doc
-    /// comment for why the interval is that long by default).
+    /// comment for why the interval is that long by default). Doesn't
+    /// need to call `refresh()` itself — the poller's `onUpdate` hook
+    /// (wired in App.swift) pushes the result here the moment
+    /// `pollOnce()` finishes.
     func refreshNow() async {
         isRefreshing = true
         await poller.pollOnce()
-        await refresh()
         isRefreshing = false
     }
 }

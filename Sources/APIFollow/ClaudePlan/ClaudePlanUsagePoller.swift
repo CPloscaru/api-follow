@@ -16,6 +16,13 @@ actor ClaudePlanUsagePoller {
     private(set) var isAvailable = false
     private var pollLoopTask: Task<Void, Never>?
 
+    /// Invoked right after every poll (automatic or manual) sets
+    /// `latestUsage`/`isAvailable` — pushes the update to the UI the
+    /// moment a response actually arrives, instead of the UI having to
+    /// poll this actor on its own timer and potentially wait up to a
+    /// full refresh cycle after the real work already finished.
+    private var onUpdate: (@Sendable () async -> Void)?
+
     init(
         credentialReader: ClaudeCodeCredentialReader = ClaudeCodeCredentialReader(),
         fetcher: ClaudePlanUsageFetcher = ClaudePlanUsageFetcher(),
@@ -24,6 +31,10 @@ actor ClaudePlanUsagePoller {
         self.credentialReader = credentialReader
         self.fetcher = fetcher
         self.pollInterval = pollInterval
+    }
+
+    func setOnUpdate(_ handler: @escaping @Sendable () async -> Void) {
+        onUpdate = handler
     }
 
     func start() {
@@ -47,6 +58,7 @@ actor ClaudePlanUsagePoller {
             claudePlanLog.notice("no Claude Code credential found (not installed/logged in, or read timed out)")
             isAvailable = false
             latestUsage = nil
+            await onUpdate?()
             return
         }
         claudePlanLog.info("credential found, fetching plan usage")
@@ -72,5 +84,8 @@ actor ClaudePlanUsagePoller {
             // the main Poller's status handling.
             isAvailable = latestUsage != nil
         }
+
+        // Push the update immediately — see `onUpdate`'s doc comment.
+        await onUpdate?()
     }
 }
