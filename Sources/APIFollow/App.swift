@@ -33,7 +33,11 @@ struct APIFollowApp: App {
             .openrouter: OpenRouterAdapter(),
             .fal: FalAdapter(),
         ]
-        let poller = Poller(store: store, keychain: keychain, adapters: adapters)
+        let balanceFetchers: [Provider: BalanceFetcher] = [
+            .openrouter: OpenRouterBalanceFetcher(),
+            .fal: FalBalanceFetcher(),
+        ]
+        let poller = Poller(store: store, keychain: keychain, adapters: adapters, balanceFetchers: balanceFetchers)
         self.poller = poller
         self.snapshot = SpendSnapshotStore(store: store, poller: poller, keychain: keychain, providers: Self.providers)
 
@@ -72,8 +76,10 @@ struct APIFollowApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("API Follow", systemImage: "dollarsign.circle") {
+        MenuBarExtra {
             MenuBarView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot, floatingWidget: floatingWidget)
+        } label: {
+            MenuBarLabelView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot)
         }
         .menuBarExtraStyle(.window)
 

@@ -12,9 +12,16 @@ actor Poller {
     private let store: SpendStore
     private let keychain: KeychainStore
     private let adapters: [Provider: ProviderAdapter]
+    private let balanceFetchers: [Provider: BalanceFetcher]
     private let pollInterval: TimeInterval
 
     private var statuses: [Provider: ProviderStatus] = [:]
+    /// Remaining credit balance, only for providers with a
+    /// `BalanceFetcher` (OpenRouter, fal.ai — see BalanceFetcher's doc
+    /// comment for why Anthropic/OpenAI don't have this). Best-effort:
+    /// a balance fetch failing doesn't affect `statuses`/spend polling
+    /// at all, it's a separate, lower-stakes concern.
+    private var balances: [Provider: Decimal] = [:]
     /// D7: per-provider in-flight guard. If a poll is still running when
     /// the next timer fires (or a wake-triggered poll overlaps a
     /// scheduled one), the new attempt is skipped rather than firing a
@@ -35,11 +42,13 @@ actor Poller {
         store: SpendStore,
         keychain: KeychainStore,
         adapters: [Provider: ProviderAdapter],
+        balanceFetchers: [Provider: BalanceFetcher] = [:],
         pollInterval: TimeInterval = 300
     ) {
         self.store = store
         self.keychain = keychain
         self.adapters = adapters
+        self.balanceFetchers = balanceFetchers
         self.pollInterval = pollInterval
     }
 
@@ -148,6 +157,20 @@ actor Poller {
 
         let result = await adapter.fetchSpend(adminKey: key, since: since, until: until)
         apply(result, for: provider)
+
+        if let balanceFetcher = balanceFetchers[provider] {
+            let balanceResult = await balanceFetcher.fetchBalance(adminKey: key)
+            switch balanceResult {
+            case .success(let amount):
+                balances[provider] = amount
+                pollerLog.info("\(provider.rawValue, privacy: .public): balance fetched: \(String(describing: amount), privacy: .public)")
+            case .authError, .transientFailure, .parseError:
+                // Best-effort — leave the last known balance in place
+                // rather than blanking it over a hiccup, same reasoning
+                // as spend status handling.
+                pollerLog.notice("\(provider.rawValue, privacy: .public): balance fetch failed, keeping last known value")
+            }
+        }
     }
 
     private func apply(_ result: FetchResult, for provider: Provider) {
@@ -203,5 +226,9 @@ actor Poller {
 
     func allStatuses() -> [Provider: ProviderStatus] {
         statuses
+    }
+
+    func allBalances() -> [Provider: Decimal] {
+        balances
     }
 }

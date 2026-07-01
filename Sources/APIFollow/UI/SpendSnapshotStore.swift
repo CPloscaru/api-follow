@@ -17,6 +17,10 @@ final class SpendSnapshotStore: ObservableObject {
     @Published private(set) var monthToDateTotal: Decimal = 0
     @Published private(set) var statuses: [Provider: ProviderStatus] = [:]
     @Published private(set) var lastRefreshedAt: Date?
+    /// Remaining credit balance per provider — only populated for
+    /// providers with a prepaid-credit model (OpenRouter, fal.ai). See
+    /// BalanceFetcher's doc comment for why Anthropic/OpenAI aren't here.
+    @Published private(set) var balances: [Provider: Decimal] = [:]
     /// Providers that currently have a key saved in the Keychain — drives
     /// whether the menu bar shows a status row or a key-entry field for
     /// each provider.
@@ -62,6 +66,7 @@ final class SpendSnapshotStore: ObservableObject {
     /// separate signal from the number itself.
     func refresh() async {
         let statuses = await poller.allStatuses()
+        let balances = await poller.allBalances()
         let total = (try? store.monthToDateTotal(providers: providers, now: Date())) ?? monthToDateTotal
         var configured: Set<Provider> = []
         for provider in providers {
@@ -71,6 +76,7 @@ final class SpendSnapshotStore: ObservableObject {
         }
 
         self.statuses = statuses
+        self.balances = balances
         self.monthToDateTotal = total
         self.keysConfigured = configured
         self.lastRefreshedAt = Date()
