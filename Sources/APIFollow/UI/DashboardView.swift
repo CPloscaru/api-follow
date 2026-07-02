@@ -22,7 +22,10 @@ struct DashboardView: View {
     @State private var selectedProvider: Provider
     @State private var records: [SpendRecord] = []
     @State private var isLoading = false
-    @State private var rangeDays = 30
+    @State private var rangeOption: DateRangeOption = .last30Days
+    @State private var customFrom: Date
+    @State private var customTo: Date
+    @State private var showCustomRangePicker = false
 
     // One hovered-day slot per chart (not shared) — charts scroll
     // independently and each has its own day set/series shape, so a
@@ -39,6 +42,46 @@ struct DashboardView: View {
         self.providers = providers
         self.snapshot = snapshot
         _selectedProvider = State(initialValue: providers.first ?? .anthropic)
+        let now = Date()
+        let calendar = Calendar(identifier: .gregorian)
+        _customFrom = State(initialValue: calendar.date(byAdding: .day, value: -30, to: now) ?? now)
+        _customTo = State(initialValue: now)
+    }
+
+    /// Ranges honestly matched to what this app actually has: day-level
+    /// buckets (every adapter/SpendStore query is per-day), not
+    /// sub-day. The reference site's "Last 30 min"/"Last hour"/"Last 24
+    /// hours" imply minute-level granularity we don't have and would
+    /// misrepresent our data — not offered here. "Current/Previous
+    /// billing cycle" isn't offered either since we don't know any
+    /// provider's actual billing cycle start date. "Last 90 days" is
+    /// legitimate: SpendStore rolls data older than the 30-day raw
+    /// retention window into daily_aggregates rather than deleting it,
+    /// so history beyond 30 days is real (if the app's been running
+    /// that long) — see SpendStore.retentionDays / rollupOldEntries.
+    private enum DateRangeOption: Hashable {
+        case last7Days
+        case last30Days
+        case last90Days
+        case custom
+
+        var label: String {
+            switch self {
+            case .last7Days: return "Last 7 days"
+            case .last30Days: return "Last 30 days"
+            case .last90Days: return "Last 90 days"
+            case .custom: return "Custom"
+            }
+        }
+
+        var days: Int? {
+            switch self {
+            case .last7Days: return 7
+            case .last30Days: return 30
+            case .last90Days: return 90
+            case .custom: return nil
+            }
+        }
     }
 
     private static let modelPalette: [Color] = [
@@ -67,7 +110,7 @@ struct DashboardView: View {
                         chartCard(title: "Usage by model", subtitle: "Spend per day, by model") {
                             spendByModelChart
                         }
-                        chartCard(title: "Top endpoints by spend", subtitle: "Ranked over the last \(rangeDays) days") {
+                        chartCard(title: "Top endpoints by spend", subtitle: "Ranked over \(rangeDescription)") {
                             topEndpointsChart
                         }
                     } else {
@@ -95,7 +138,7 @@ struct DashboardView: View {
                     }
 
                     if records.isEmpty {
-                        Text("No activity for \(MenuBarView.providerLabel(selectedProvider)) in the last \(rangeDays) days — cards and charts above are showing their zero/empty state, not an error.")
+                        Text("No activity for \(MenuBarView.providerLabel(selectedProvider)) over \(rangeDescription) — cards and charts above are showing their zero/empty state, not an error.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -113,36 +156,92 @@ struct DashboardView: View {
         // keeps this at the design doc's macOS 13 floor, same reasoning
         // as SpendSnapshotStore's ObservableObject-over-@Observable choice.
         .onChange(of: selectedProvider) { _ in Task { await load() } }
+        .onChange(of: rangeOption) { _ in Task { await load() } }
+        .onChange(of: customFrom) { _ in if rangeOption == .custom { Task { await load() } } }
+        .onChange(of: customTo) { _ in if rangeOption == .custom { Task { await load() } } }
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Activity")
-                    .font(.largeTitle)
-                    .bold()
-                Text("Your usage across \(MenuBarView.providerLabel(selectedProvider))")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Picker("Provider", selection: $selectedProvider) {
-                ForEach(providers, id: \.self) { provider in
-                    Text(MenuBarView.providerLabel(provider)).tag(provider)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Activity")
+                        .font(.largeTitle)
+                        .bold()
+                    Text("Your usage across \(MenuBarView.providerLabel(selectedProvider))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
+                Spacer()
+                Picker("Provider", selection: $selectedProvider) {
+                    ForEach(providers, id: \.self) { provider in
+                        Text(MenuBarView.providerLabel(provider)).tag(provider)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 260)
+                Button {
+                    Task { await load() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(isLoading)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 260)
-            Button {
-                Task { await load() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .disabled(isLoading)
+
+            rangePicker
         }
+    }
+
+    private var rangePicker: some View {
+        HStack {
+            Menu {
+                ForEach([DateRangeOption.last7Days, .last30Days, .last90Days], id: \.self) { option in
+                    Button(option.label) { rangeOption = option }
+                }
+                Button("Custom…") {
+                    rangeOption = .custom
+                    showCustomRangePicker = true
+                }
+            } label: {
+                Label(rangeOption.label, systemImage: "calendar")
+                    .font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .popover(isPresented: $showCustomRangePicker) {
+                customRangePopover
+            }
+
+            if rangeOption == .custom {
+                Button {
+                    showCustomRangePicker = true
+                } label: {
+                    Text(rangeDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var customRangePopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Custom range")
+                .font(.caption)
+                .bold()
+            DatePicker("From", selection: $customFrom, in: ...customTo, displayedComponents: .date)
+                .font(.caption)
+            DatePicker("To", selection: $customTo, in: customFrom...Date(), displayedComponents: .date)
+                .font(.caption)
+        }
+        .padding(14)
+        .frame(width: 220)
     }
 
     // MARK: - KPIs
@@ -538,15 +637,35 @@ struct DashboardView: View {
         return formatter.string(from: date)
     }
 
+    /// The (from, to) currently in effect — presets are computed fresh
+    /// from "now" each load so "Last 7 days" always means the last 7
+    /// days, not a range frozen when the picker was first opened;
+    /// custom uses whatever the user picked verbatim.
+    private var effectiveRange: (from: Date, to: Date) {
+        let now = Date()
+        if let days = rangeOption.days {
+            let calendar = Calendar(identifier: .gregorian)
+            let from = calendar.date(byAdding: .day, value: -days, to: now) ?? now
+            return (from, now)
+        }
+        return (customFrom, customTo)
+    }
+
+    private var rangeDescription: String {
+        switch rangeOption {
+        case .last7Days, .last30Days, .last90Days:
+            return "the last \(rangeOption.days ?? 0) days"
+        case .custom:
+            return "\(Self.dayLabel(customFrom)) – \(Self.dayLabel(customTo))"
+        }
+    }
+
     private func load() async {
         isLoading = true
         defer { isLoading = false }
 
-        let now = Date()
-        let calendar = Calendar(identifier: .gregorian)
-        guard let from = calendar.date(byAdding: .day, value: -rangeDays, to: now) else { return }
-
-        records = (try? store.dedupedRecords(for: selectedProvider, from: from, to: now)) ?? []
+        let range = effectiveRange
+        records = (try? store.dedupedRecords(for: selectedProvider, from: range.from, to: range.to)) ?? []
     }
 
     private static func formatAmount(_ amount: Decimal) -> String {
