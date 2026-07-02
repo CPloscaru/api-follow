@@ -38,6 +38,16 @@ actor Poller {
     #endif
     private var wakeObserver: NSObjectProtocol?
 
+    /// Invoked after every individual `pollNow` completes (spend +
+    /// balance, whether from the automatic cycle, wake, or a manual
+    /// trigger like `saveKey`). Same push-based reasoning as
+    /// `ClaudePlanUsagePoller.onUpdate` — without this, the UI only
+    /// found out about a completed poll on its own 30s timer, which on
+    /// launch (or after a wake) meant the balance/status could sit
+    /// stale-looking for up to 30s after the real answer had already
+    /// arrived. Real user-reported bug, not a hypothetical.
+    private var onUpdate: (@Sendable () async -> Void)?
+
     init(
         store: SpendStore,
         keychain: KeychainStore,
@@ -50,6 +60,10 @@ actor Poller {
         self.adapters = adapters
         self.balanceFetchers = balanceFetchers
         self.pollInterval = pollInterval
+    }
+
+    func setOnUpdate(_ handler: @escaping @Sendable () async -> Void) {
+        onUpdate = handler
     }
 
     // MARK: - Lifecycle
@@ -171,6 +185,9 @@ actor Poller {
                 pollerLog.notice("\(provider.rawValue, privacy: .public): balance fetch failed, keeping last known value")
             }
         }
+
+        // Push the update immediately — see `onUpdate`'s doc comment.
+        await onUpdate?()
     }
 
     private func apply(_ result: FetchResult, for provider: Provider) {

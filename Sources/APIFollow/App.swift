@@ -48,19 +48,25 @@ struct APIFollowApp: App {
 
         Self.registerLaunchAtLogin()
 
-        Task {
-            await poller.start()
-        }
-        Task { @MainActor [snapshot] in
-            // Cheap local-state refresh loop — reads from the poller's
-            // already-updated status map and the DB Poller just wrote to;
-            // does not itself call any provider API. Runs more often than
-            // the 5-min poll interval so the UI reflects a poll (or a
-            // manual refresh, or a wake-triggered poll) promptly.
-            while true {
+        Task { [snapshot] in
+            // Push-based, not poll-based: see Poller.onUpdate's doc
+            // comment. Real bug this fixed: balances/status used to
+            // only refresh on a 30s UI timer, so right after launch
+            // (or a key save, or a wake) the popover could show a
+            // stale-looking number for up to 30s after the real poll
+            // had already finished.
+            await poller.setOnUpdate { @MainActor [snapshot] in
                 await snapshot.refresh()
-                try? await Task.sleep(for: .seconds(30))
             }
+            // One eager refresh independent of any poll completing —
+            // `keysConfigured` reads straight from Keychain, not poll
+            // results, so an already-configured provider shouldn't
+            // show its "enter a key" field just because its first poll
+            // this launch hasn't finished yet (pollNow only fires
+            // onUpdate for providers that actually have a key; a
+            // provider with none never triggers a push at all).
+            await snapshot.refresh()
+            await poller.start()
         }
         Task {
             // Push-based, not poll-based: the moment pollOnce() (either

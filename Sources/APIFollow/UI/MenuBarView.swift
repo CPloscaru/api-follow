@@ -63,28 +63,32 @@ struct MenuBarView: View {
 
     /// Modern, visible action buttons — replaces the earlier plain-text
     /// links per feedback that they were too subtle to notice at a
-    /// glance. Bordered + icon + tint, side by side.
+    /// glance. Both solid orange (not a translucent tint, which reads
+    /// as a muddy low-contrast brown against a dark popover background
+    /// and was reported as hard to see) — "Dashboard" filled (primary),
+    /// "Show Overlay" outlined with a filled icon badge (secondary),
+    /// same hue throughout so the two read as a set.
     private var actionButtons: some View {
         HStack(spacing: 8) {
             Button {
                 floatingWidget.toggle()
             } label: {
                 Label(floatingWidget.isVisible ? "Hide Overlay" : "Show Overlay", systemImage: floatingWidget.isVisible ? "eye.slash.fill" : "eye.fill")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 4)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.orange.opacity(0.35))
+            .buttonStyle(.bordered)
+            .tint(.orange)
             .foregroundStyle(.orange)
 
             Button {
                 openWindow(id: "dashboard")
             } label: {
                 Label("Dashboard", systemImage: "chart.bar.fill")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
             .tint(.orange)

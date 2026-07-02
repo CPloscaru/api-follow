@@ -47,9 +47,11 @@ final class SpendSnapshotStore: ObservableObject {
 
     /// Writes the key to Keychain, updates `keysConfigured` immediately
     /// (so the UI swaps from the entry field to the status row without
-    /// waiting for the next 30s refresh tick), and kicks an immediate
-    /// poll for that provider so the user sees a number right away
-    /// rather than waiting up to 5 minutes.
+    /// waiting), and kicks an immediate poll for that provider so the
+    /// user sees a number right away rather than waiting up to 5
+    /// minutes. Doesn't need to call `refresh()` itself — Poller's
+    /// `onUpdate` hook (wired in App.swift) pushes the result here the
+    /// moment `pollNow` finishes.
     func saveKey(_ key: String, for provider: Provider) async {
         do {
             try keychain.save(key, for: provider)
@@ -60,7 +62,6 @@ final class SpendSnapshotStore: ObservableObject {
             return
         }
         await poller.pollNow(provider)
-        await refresh()
     }
 
     /// D11: menu bar headline = month-to-date total, summed from each
