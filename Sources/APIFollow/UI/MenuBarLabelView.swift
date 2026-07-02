@@ -1,11 +1,21 @@
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
-/// The always-visible menu bar content — deliberately dense (multiple
-/// segments in one label) per explicit request: OpenRouter balance,
-/// fal.ai balance, Claude session/weekly %, each shown only once that
-/// provider actually has data (never a placeholder "$0.00" for an
-/// unconfigured provider, which would misrepresent "no data yet" as
-/// "zero balance").
+/// The always-visible menu bar content. Two tiers:
+/// - Always shown: the app icon (a Lucide "volleyball" SVG — ISC
+///   licensed, see Resources/menubar-icon.svg for attribution — chosen
+///   over an SF Symbol per explicit request for something more
+///   distinctive than a generic system glyph) tinted by overall
+///   reliability, plus the month-to-date SPEND total. One compact
+///   number, low risk of the menu bar clipping it.
+/// - Opt-in (settings gear in the popover, default off): the fuller
+///   per-provider breakdown — OpenRouter balance, fal.ai balance,
+///   Claude session/weekly %, each shown only once that provider
+///   actually has data (never a placeholder "$0.00" for an
+///   unconfigured provider). This is the part that got silently
+///   clipped on a crowded menu bar before it was made opt-in.
 ///
 /// Uses a distinct SF Symbol + tint color per segment instead of text
 /// prefixes ("OR", "Fal", "C") — icons are scannable at a glance without
@@ -31,24 +41,59 @@ struct MenuBarLabelView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: snapshot.overallReliability.systemImageName)
+            menuBarIcon
                 .foregroundStyle(reliabilityColor)
 
+            // Total month-to-date SPEND — always visible, not gated
+            // behind the settings toggle. This is one compact number
+            // (unlike the multi-segment breakdown below), so it never
+            // risks the clipping problem that made the fuller text
+            // opt-in in the first place.
+            Text(Self.formatAmount(snapshot.monthToDateTotal))
+
             if showCondensedText {
-                if segments.isEmpty {
-                    Text(Self.formatAmount(snapshot.monthToDateTotal))
-                } else {
-                    ForEach(segments) { segment in
-                        HStack(spacing: 2) {
-                            Image(systemName: segment.icon)
-                                .foregroundStyle(segment.color)
-                            Text(segment.text)
-                        }
+                ForEach(segments) { segment in
+                    HStack(spacing: 2) {
+                        Image(systemName: segment.icon)
+                            .foregroundStyle(segment.color)
+                        Text(segment.text)
                     }
                 }
             }
         }
     }
+
+    /// Loads Resources/menubar-icon.svg as a template (tintable) image
+    /// via `Bundle.module`, falling back to an SF Symbol if SVG loading
+    /// fails for any reason (older macOS SVG rasterization quirks,
+    /// resource not found, etc.) — the menu bar should never end up
+    /// with a blank icon.
+    @ViewBuilder
+    private var menuBarIcon: some View {
+        #if canImport(AppKit)
+        if let nsImage = Self.cachedIcon {
+            Image(nsImage: nsImage)
+                .resizable()
+                .frame(width: 16, height: 16)
+        } else {
+            Image(systemName: "banknote.fill")
+        }
+        #else
+        Image(systemName: "banknote.fill")
+        #endif
+    }
+
+    #if canImport(AppKit)
+    private static let cachedIcon: NSImage? = {
+        guard let url = Bundle.module.url(forResource: "menubar-icon", withExtension: "svg"),
+              let image = NSImage(contentsOf: url)
+        else {
+            return nil
+        }
+        image.isTemplate = true // tintable via .foregroundStyle, matches SF Symbol behavior
+        return image
+    }()
+    #endif
 
     private struct Segment: Identifiable {
         let id: String

@@ -19,6 +19,9 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
             exclude: ["Info.plist"],
+            resources: [
+                .copy("Resources/menubar-icon.svg")
+            ],
             linkerSettings: [
                 .unsafeFlags([
                     "-Xlinker", "-sectcreate",
