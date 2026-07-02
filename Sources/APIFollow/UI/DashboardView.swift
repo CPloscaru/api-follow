@@ -24,6 +24,16 @@ struct DashboardView: View {
     @State private var isLoading = false
     @State private var rangeDays = 30
 
+    // One hovered-day slot per chart (not shared) — charts scroll
+    // independently and each has its own day set/series shape, so a
+    // single shared slot would show the wrong chart's tooltip if two
+    // were hovered in quick succession.
+    @State private var hoveredSpendByModelDay: Date?
+    @State private var hoveredRequestsDay: Date?
+    @State private var hoveredTokenDay: Date?
+    @State private var hoveredUsageTypeDay: Date?
+    @State private var hoveredTotalSpendDay: Date?
+
     init(store: SpendStore, providers: [Provider], snapshot: SpendSnapshotStore) {
         self.store = store
         self.providers = providers
@@ -56,6 +66,9 @@ struct DashboardView: View {
                     if providerSupportsSpendByModel {
                         chartCard(title: "Usage by model", subtitle: "Spend per day, by model") {
                             spendByModelChart
+                        }
+                        chartCard(title: "Top endpoints by spend", subtitle: "Ranked over the last \(rangeDays) days") {
+                            topEndpointsChart
                         }
                     } else {
                         chartCard(title: "Spend by day", subtitle: "No per-model breakdown for this provider") {
@@ -171,7 +184,8 @@ struct DashboardView: View {
     // MARK: - Charts
 
     private var spendByModelChart: some View {
-        Chart(spendByModelSeries, id: \.id) { entry in
+        let days = spendByModelSeries.map(\.day)
+        return Chart(spendByModelSeries, id: \.id) { entry in
             BarMark(
                 x: .value("Day", entry.day, unit: .day),
                 y: .value("Spend", entry.amount)
@@ -181,10 +195,16 @@ struct DashboardView: View {
         }
         .chartLegend(position: .bottom, spacing: 8)
         .frame(height: 220)
+        .hoverTooltip(days: days, selection: $hoveredSpendByModelDay) { day in
+            let entries = spendByModelSeries.filter { Self.dayKey($0.day) == Self.dayKey(day) }
+            let rows = entries.map { TooltipRow(label: $0.model, value: Self.formatAmount($0.amount), color: color(for: $0.model)) }
+            return TooltipContent(dateLabel: Self.dayLabel(day), rows: rows, total: Self.formatAmount(entries.reduce(0) { $0 + $1.amount }))
+        }
     }
 
     private var requestsByModelChart: some View {
-        Chart(requestsByModelSeries, id: \.id) { entry in
+        let days = requestsByModelSeries.map(\.day)
+        return Chart(requestsByModelSeries, id: \.id) { entry in
             BarMark(
                 x: .value("Day", entry.day, unit: .day),
                 y: .value("Requests", entry.requests)
@@ -194,10 +214,16 @@ struct DashboardView: View {
         }
         .chartLegend(position: .bottom, spacing: 8)
         .frame(height: 220)
+        .hoverTooltip(days: days, selection: $hoveredRequestsDay) { day in
+            let entries = requestsByModelSeries.filter { Self.dayKey($0.day) == Self.dayKey(day) }
+            let rows = entries.map { TooltipRow(label: $0.model, value: "\($0.requests)", color: color(for: $0.model)) }
+            return TooltipContent(dateLabel: Self.dayLabel(day), rows: rows, total: "\(entries.reduce(0) { $0 + $1.requests })")
+        }
     }
 
     private var tokenBreakdownChart: some View {
-        Chart(tokenBreakdownSeries) { entry in
+        let days = tokenBreakdownSeries.map(\.day)
+        return Chart(tokenBreakdownSeries) { entry in
             BarMark(
                 x: .value("Day", entry.day, unit: .day),
                 y: .value("Tokens", entry.count)
@@ -210,10 +236,17 @@ struct DashboardView: View {
         ])
         .chartLegend(position: .bottom, spacing: 8)
         .frame(height: 220)
+        .hoverTooltip(days: days, selection: $hoveredTokenDay) { day in
+            let entries = tokenBreakdownSeries.filter { Self.dayKey($0.day) == Self.dayKey(day) }
+            let tokenColor: (String) -> Color = { $0 == "Prompt" ? .blue : ($0 == "Completion" ? .purple : .pink) }
+            let rows = entries.map { TooltipRow(label: $0.kind, value: Self.formatCompact($0.count), color: tokenColor($0.kind)) }
+            return TooltipContent(dateLabel: Self.dayLabel(day), rows: rows, total: Self.formatCompact(entries.reduce(0) { $0 + $1.count }))
+        }
     }
 
     private var usageTypeChart: some View {
-        Chart(usageTypeSeries) { entry in
+        let days = usageTypeSeries.map(\.day)
+        return Chart(usageTypeSeries) { entry in
             BarMark(
                 x: .value("Day", entry.day, unit: .day),
                 y: .value("Spend", entry.amount)
@@ -226,10 +259,16 @@ struct DashboardView: View {
         ])
         .chartLegend(position: .bottom, spacing: 8)
         .frame(height: 220)
+        .hoverTooltip(days: days, selection: $hoveredUsageTypeDay) { day in
+            let entries = usageTypeSeries.filter { Self.dayKey($0.day) == Self.dayKey(day) }
+            let rows = entries.map { TooltipRow(label: $0.kind, value: Self.formatAmount($0.amount), color: $0.kind == "BYOK" ? .yellow : .purple) }
+            return TooltipContent(dateLabel: Self.dayLabel(day), rows: rows, total: nil)
+        }
     }
 
     private var totalSpendChart: some View {
-        Chart(dailyTotalsSeries, id: \.day) { entry in
+        let days = dailyTotalsSeries.map(\.day)
+        return Chart(dailyTotalsSeries, id: \.day) { entry in
             BarMark(
                 x: .value("Day", entry.day, unit: .day),
                 y: .value("Spend", entry.amount)
@@ -237,6 +276,41 @@ struct DashboardView: View {
             .foregroundStyle(.blue)
         }
         .frame(height: 220)
+        .hoverTooltip(days: days, selection: $hoveredTotalSpendDay) { day in
+            let amount = dailyTotalsSeries.first { Self.dayKey($0.day) == Self.dayKey(day) }?.amount ?? 0
+            return TooltipContent(dateLabel: Self.dayLabel(day), rows: [TooltipRow(label: "Spend", value: Self.formatAmount(amount), color: .blue)], total: nil)
+        }
+    }
+
+    /// Ranked horizontal bars, one per model, summed across the whole
+    /// selected range — matches fal.ai's own "Top endpoints by spend"
+    /// card. Built entirely from data already fetched for the per-day
+    /// chart above (no new API calls, no new fields).
+    private var topEndpointsChart: some View {
+        Chart(topEndpointsSeries) { entry in
+            BarMark(
+                x: .value("Spend", entry.amount),
+                y: .value("Model", entry.model)
+            )
+            .foregroundStyle(color(for: entry.model))
+            .annotation(position: .trailing) {
+                Text(Self.formatAmount(entry.amount))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .chartYAxis {
+            AxisMarks { value in
+                if let model = value.as(String.self) {
+                    AxisValueLabel {
+                        Text(model)
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .frame(height: CGFloat(topEndpointsSeries.count) * 32 + 20)
     }
 
     // MARK: - Empty / unavailable
@@ -299,6 +373,24 @@ struct DashboardView: View {
         var day: Date
         var kind: String
         var amount: Decimal
+    }
+
+    /// One row inside a hover tooltip — a colored dot, a label (model
+    /// name / token kind / usage kind), and a formatted value. Mirrors
+    /// fal.ai's own Activity page tooltip (date header, per-series
+    /// breakdown, total) since that's the reference the user is
+    /// comparing against.
+    fileprivate struct TooltipRow: Identifiable {
+        let id = UUID()
+        let label: String
+        let value: String
+        let color: Color
+    }
+
+    fileprivate struct TooltipContent {
+        let dateLabel: String
+        let rows: [TooltipRow]
+        let total: String?
     }
 
     /// Which chart sections a PROVIDER can support — a capability
@@ -407,6 +499,26 @@ struct DashboardView: View {
         return byDay.map { ($0.key, $0.value) }.sorted { $0.day < $1.day }
     }
 
+    private struct TopEndpointEntry: Identifiable {
+        var id: String { model }
+        var model: String
+        var amount: Decimal
+    }
+
+    private var topEndpointsSeries: [TopEndpointEntry] {
+        var byModel: [String: Decimal] = [:]
+        for record in records {
+            guard let model = record.model else { continue }
+            byModel[model, default: 0] += record.amountUSD
+        }
+        return byModel
+            .map { TopEndpointEntry(model: $0.key, amount: $0.value) }
+            .sorted { $0.amount > $1.amount }
+            .prefix(8)
+            .reversed() // BarMark on a y-axis category draws bottom-up — reverse so highest spend renders at the top, matching the reference's top-to-bottom ranking
+            .map { $0 }
+    }
+
     private func color(for model: String) -> Color {
         let index = abs(model.hashValue) % Self.modelPalette.count
         return Self.modelPalette[index]
@@ -415,6 +527,13 @@ struct DashboardView: View {
     private static func dayKey(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter.string(from: date)
+    }
+
+    fileprivate static func dayLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d, yyyy"
         formatter.timeZone = TimeZone(identifier: "UTC")
         return formatter.string(from: date)
     }
@@ -441,5 +560,103 @@ struct DashboardView: View {
         if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
         if value >= 1_000 { return String(format: "%.1fK", Double(value) / 1_000) }
         return "\(value)"
+    }
+}
+
+/// Mouse-hover tooltips on bar charts — direct answer to "I can hover
+/// over fal.ai's own chart and see a breakdown, can't we show that
+/// too?". `.onContinuousHover` (native mouse tracking, not a drag
+/// gesture — this is a desktop app, not touch) finds the nearest day
+/// under the cursor via the chart's own x-scale, snaps to the closest
+/// day actually present in that chart's data (bars are exactly one day
+/// wide, so any x within a bar's width should resolve to that bar's
+/// day), and renders a floating card built by the caller's `content`
+/// closure. Each chart supplies its own tooltip content since the
+/// underlying series shape differs (model breakdown vs. token kind vs.
+/// plain daily total) — this extension only owns hit-testing and
+/// rendering, not what the numbers mean.
+private extension View {
+    func hoverTooltip(
+        days: [Date],
+        selection: Binding<Date?>,
+        @ViewBuilder content: @escaping (Date) -> DashboardView.TooltipContent
+    ) -> some View {
+        chartOverlay { proxy in
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                let plotFrame = geometry[proxy.plotAreaFrame]
+                                let relativeX = location.x - plotFrame.origin.x
+                                guard let hoveredDate: Date = proxy.value(atX: relativeX),
+                                      let nearest = days.min(by: {
+                                          abs($0.timeIntervalSince(hoveredDate)) < abs($1.timeIntervalSince(hoveredDate))
+                                      })
+                                else {
+                                    selection.wrappedValue = nil
+                                    return
+                                }
+                                selection.wrappedValue = nearest
+                            case .ended:
+                                selection.wrappedValue = nil
+                            }
+                        }
+
+                    if let day = selection.wrappedValue {
+                        let tooltip = content(day)
+                        let plotFrame = geometry[proxy.plotAreaFrame]
+                        let xPosition = (proxy.position(forX: day) ?? 0) + plotFrame.origin.x
+                        DashboardTooltipCard(content: tooltip)
+                            .position(x: min(max(xPosition, 80), geometry.size.width - 80), y: 60)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct DashboardTooltipCard: View {
+    let content: DashboardView.TooltipContent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(content.dateLabel)
+                .font(.caption.bold())
+            ForEach(content.rows) { row in
+                HStack(spacing: 6) {
+                    Circle().fill(row.color).frame(width: 6, height: 6)
+                    Text(row.label)
+                        .font(.caption2)
+                        .lineLimit(1)
+                    Spacer(minLength: 12)
+                    Text(row.value)
+                        .font(.caption2.monospacedDigit())
+                }
+            }
+            if let total = content.total {
+                Divider()
+                HStack {
+                    Text("Total").font(.caption2.bold())
+                    Spacer(minLength: 12)
+                    Text(total).font(.caption2.bold().monospacedDigit())
+                }
+            }
+        }
+        .padding(8)
+        .frame(width: 200, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(white: 0.14))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(white: 0.32), lineWidth: 1)
+        )
+        .shadow(radius: 6)
     }
 }
