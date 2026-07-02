@@ -17,15 +17,17 @@ import Charts
 struct DashboardView: View {
     let store: SpendStore
     let providers: [Provider]
+    @ObservedObject var snapshot: SpendSnapshotStore
 
     @State private var selectedProvider: Provider
     @State private var records: [SpendRecord] = []
     @State private var isLoading = false
     @State private var rangeDays = 30
 
-    init(store: SpendStore, providers: [Provider]) {
+    init(store: SpendStore, providers: [Provider], snapshot: SpendSnapshotStore) {
         self.store = store
         self.providers = providers
+        self.snapshot = snapshot
         _selectedProvider = State(initialValue: providers.first ?? .anthropic)
     }
 
@@ -51,19 +53,25 @@ struct DashboardView: View {
                     // data-presence question ("is there data right now").
                     kpiRow
 
-                    if providerSupportsModelBreakdown {
+                    if providerSupportsSpendByModel {
                         chartCard(title: "Usage by model", subtitle: "Spend per day, by model") {
                             spendByModelChart
-                        }
-                        chartCard(title: "Request volume by model", subtitle: "Requests per day, by model") {
-                            requestsByModelChart
-                        }
-                        chartCard(title: "Token breakdown", subtitle: "Prompt / completion / reasoning tokens per day") {
-                            tokenBreakdownChart
                         }
                     } else {
                         chartCard(title: "Spend by day", subtitle: "No per-model breakdown for this provider") {
                             totalSpendChart
+                        }
+                    }
+
+                    if providerSupportsRequestsByModel {
+                        chartCard(title: "Request volume by model", subtitle: "Requests per day, by model") {
+                            requestsByModelChart
+                        }
+                    }
+
+                    if providerSupportsTokenBreakdown {
+                        chartCard(title: "Token breakdown", subtitle: "Prompt / completion / reasoning tokens per day") {
+                            tokenBreakdownChart
                         }
                     }
 
@@ -129,8 +137,19 @@ struct DashboardView: View {
     private var kpiRow: some View {
         HStack(spacing: 12) {
             kpiCard(title: "Total spend", value: Self.formatAmount(totalSpend))
-            kpiCard(title: "Requests", value: "\(totalRequests)")
-            kpiCard(title: "Token volume", value: Self.formatCompact(totalTokens))
+            if let balance = snapshot.balances[selectedProvider] {
+                kpiCard(title: "Credits remaining", value: Self.formatAmount(balance))
+            }
+            // Requests/Token volume gated the same way as the charts —
+            // showing "0 Requests" for a provider that never tracks
+            // request counts (fal.ai) would read as "zero requests
+            // happened", not "this app doesn't measure that here".
+            if providerSupportsRequestsByModel {
+                kpiCard(title: "Requests", value: "\(totalRequests)")
+            }
+            if providerSupportsTokenBreakdown {
+                kpiCard(title: "Token volume", value: Self.formatCompact(totalTokens))
+            }
         }
     }
 
@@ -283,12 +302,26 @@ struct DashboardView: View {
     }
 
     /// Which chart sections a PROVIDER can support — a capability
-    /// question, not "does data exist right now". A quiet OpenRouter
-    /// account still gets the Usage-by-model/Token-breakdown/Usage-type
-    /// sections (rendered empty), because its API exposes those
-    /// dimensions; Anthropic/OpenAI never get them, because their Cost
-    /// APIs don't, regardless of how much data is polled.
-    private var providerSupportsModelBreakdown: Bool {
+    /// question, not "does data exist right now". A quiet account still
+    /// gets these sections (rendered empty), because the underlying API
+    /// exposes the dimension; a provider whose API genuinely doesn't
+    /// have it never gets the section, regardless of how much data is
+    /// polled. Split into separate flags (not one blanket
+    /// "supports model breakdown") because fal.ai has real per-model
+    /// SPEND data (`endpoint_id` in its Usage API) but NOT request
+    /// counts or token counts — `quantity`/`unit` there means things
+    /// like "4 images", deliberately not mapped into `requests` (see
+    /// FalAdapter's doc comment) since that would misrepresent what
+    /// the number means.
+    private var providerSupportsSpendByModel: Bool {
+        selectedProvider == .openrouter || selectedProvider == .fal
+    }
+
+    private var providerSupportsRequestsByModel: Bool {
+        selectedProvider == .openrouter
+    }
+
+    private var providerSupportsTokenBreakdown: Bool {
         selectedProvider == .openrouter
     }
 

@@ -84,7 +84,7 @@ struct APIFollowApp: App {
         .menuBarExtraStyle(.window)
 
         Window("API Follow Dashboard", id: "dashboard") {
-            DashboardView(store: store, providers: Self.providers)
+            DashboardView(store: store, providers: Self.providers, snapshot: snapshot)
         }
         .defaultSize(width: 480, height: 420)
     }

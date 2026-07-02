@@ -70,21 +70,25 @@ struct MenuBarView: View {
                 floatingWidget.toggle()
             } label: {
                 Label(floatingWidget.isVisible ? "Hide Overlay" : "Show Overlay", systemImage: floatingWidget.isVisible ? "eye.slash.fill" : "eye.fill")
-                    .font(.caption)
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 2)
             }
-            .buttonStyle(.bordered)
-            .tint(.purple)
+            .buttonStyle(.borderedProminent)
+            .tint(.orange.opacity(0.35))
+            .foregroundStyle(.orange)
 
             Button {
                 openWindow(id: "dashboard")
             } label: {
                 Label("Dashboard", systemImage: "chart.bar.fill")
-                    .font(.caption)
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 2)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.blue)
+            .tint(.orange)
+            .foregroundStyle(.white)
         }
     }
 
