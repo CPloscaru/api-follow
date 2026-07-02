@@ -84,8 +84,14 @@ struct MenuBarLabelView: View {
     }
 
     #if canImport(AppKit)
+    /// Reads straight from Contents/Resources/ (standard macOS app
+    /// bundle layout), not SPM's Bundle.module — see Package.swift's
+    /// comment on Resources/menubar-icon.svg for why. Falls back to
+    /// nil (→ SF Symbol) when run as a bare `swift run`/`swift build`
+    /// binary rather than the packaged .app from build-app.sh, since
+    /// there's no Contents/Resources in that context.
     private static let cachedIcon: NSImage? = {
-        guard let url = Bundle.module.url(forResource: "menubar-icon", withExtension: "svg"),
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("menubar-icon.svg"),
               let image = NSImage(contentsOf: url)
         else {
             return nil

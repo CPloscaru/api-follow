@@ -21,18 +21,17 @@ BIN_PATH="${BIN_DIR}/${APP_NAME}"
 
 echo "Packaging ${BUNDLE_DIR}..."
 rm -rf "$BUNDLE_DIR"
-mkdir -p "$BUNDLE_DIR/Contents/MacOS"
+mkdir -p "$BUNDLE_DIR/Contents/MacOS" "$BUNDLE_DIR/Contents/Resources"
 cp "$BIN_PATH" "$BUNDLE_DIR/Contents/MacOS/${APP_NAME}"
 cp "Sources/${APP_NAME}/Info.plist" "$BUNDLE_DIR/Contents/Info.plist"
 
-# SPM's generated Bundle.module accessor looks for
-# "<Bundle.main.bundleURL>/<Target>_<Target>.bundle" — that's the .app
-# root, not Contents/Resources, so resource bundles (menubar-icon.svg
-# via APIFollow_APIFollow.bundle, GRDB's own bundle, etc.) get copied
-# there to match exactly what the generated accessor computes.
-for bundle in "$BIN_DIR"/*.bundle; do
-  [ -d "$bundle" ] && cp -R "$bundle" "$BUNDLE_DIR/$(basename "$bundle")"
-done
+# Standard macOS bundle location — read at runtime via
+# Bundle.main.resourceURL (MenuBarLabelView), not SPM's Bundle.module.
+# An earlier version copied SPM's generated resource *.bundle folders
+# to the .app root instead (matching what Bundle.module looks for),
+# but that sits outside Contents/ and broke codesign's sealing
+# ("unsealed contents present in the bundle root").
+cp "Sources/${APP_NAME}/Resources/menubar-icon.svg" "$BUNDLE_DIR/Contents/Resources/menubar-icon.svg"
 
 # Ad-hoc sign — gives the bundle a stable identity so macOS Keychain
 # access (which is identity-scoped) behaves consistently across runs,
