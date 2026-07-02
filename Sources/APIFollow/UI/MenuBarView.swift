@@ -85,14 +85,23 @@ struct MenuBarView: View {
             Button {
                 openWindow(id: "dashboard")
             } label: {
-                Label("Dashboard", systemImage: "chart.bar.fill")
-                    .font(.subheadline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+                // Color applied directly to the content (not via a
+                // button-level .foregroundStyle) — .borderedProminent
+                // has been observed to override an outer foregroundStyle
+                // with its own contrasting-color default, which is why
+                // the text stayed white despite an earlier attempt to
+                // set it via the modifier on the button itself.
+                HStack {
+                    Image(systemName: "chart.bar.fill")
+                    Text("Dashboard")
+                }
+                .foregroundColor(.black)
+                .font(.subheadline.weight(.bold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
             .tint(.orange)
-            .foregroundStyle(.white)
         }
     }
 
