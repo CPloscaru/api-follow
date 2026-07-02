@@ -180,7 +180,10 @@ struct MenuBarView: View {
                 .font(.title2)
                 .bold()
             Spacer()
-            Text("MTD")
+            // "spent this month" (not "MTD") pairs clearly against
+            // "left" on the balance rows below — an acronym next to a
+            // plain word read as two different, uncomparable concepts.
+            Text("spent this month")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -265,7 +268,7 @@ private struct ProviderRow: View {
     }
 
     private var glanceLabel: String {
-        snapshot.balances[provider] != nil ? "left" : "MTD"
+        snapshot.balances[provider] != nil ? "left" : "spent"
     }
 
     var body: some View {

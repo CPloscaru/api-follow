@@ -47,7 +47,7 @@ struct GlobalOverlayView: View {
             Text(Self.formatAmount(snapshot.monthToDateTotal))
                 .font(.headline)
                 .monospacedDigit()
-            Text("MTD")
+            Text("spent this month")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -64,7 +64,7 @@ struct GlobalOverlayView: View {
     private func providerRow(_ provider: Provider) -> some View {
         let status = snapshot.statuses[provider] ?? .staleTransient(lastPolledAt: nil)
         let amount = snapshot.balances[provider] ?? snapshot.perProviderTotals[provider]
-        let label = snapshot.balances[provider] != nil ? "left" : "MTD"
+        let label = snapshot.balances[provider] != nil ? "left" : "spent"
 
         return HStack {
             Circle()
