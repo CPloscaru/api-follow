@@ -634,6 +634,7 @@ struct DashboardView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM d, yyyy"
         formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = .appDisplay
         return formatter.string(from: date)
     }
 
@@ -672,6 +673,7 @@ struct DashboardView: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
+        formatter.locale = .appDisplay
         return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 

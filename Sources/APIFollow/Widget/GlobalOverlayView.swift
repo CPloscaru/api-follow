@@ -127,7 +127,7 @@ struct GlobalOverlayView: View {
             }
             ProgressView(value: min(max(percentage, 0), 100), total: 100)
                 .tint(percentage >= 90 ? .red : (percentage >= 75 ? .orange : .green))
-            Text("Resets \(resetAt.formatted(.relative(presentation: .named)))")
+            Text("Resets \(resetAt.formatted(.relative(presentation: .named).locale(.appDisplay)))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -151,6 +151,7 @@ struct GlobalOverlayView: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
+        formatter.locale = .appDisplay
         return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 }

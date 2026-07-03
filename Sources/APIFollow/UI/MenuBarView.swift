@@ -39,7 +39,7 @@ struct MenuBarView: View {
 
             HStack {
                 if let lastRefreshedAt = snapshot.lastRefreshedAt {
-                    Text("As of \(lastRefreshedAt.formatted(date: .omitted, time: .shortened))")
+                    Text("As of \(lastRefreshedAt.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(.appDisplay)))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -166,7 +166,7 @@ struct MenuBarView: View {
             }
             ProgressView(value: min(max(percentage, 0), 100), total: 100)
                 .tint(percentage >= 90 ? .red : (percentage >= 75 ? .orange : .green))
-            Text("Resets \(resetAt.formatted(.relative(presentation: .named)))")
+            Text("Resets \(resetAt.formatted(.relative(presentation: .named).locale(.appDisplay)))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -193,6 +193,7 @@ struct MenuBarView: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
+        formatter.locale = .appDisplay
         return formatter.string(from: snapshot.monthToDateTotal as NSDecimalNumber) ?? "$0.00"
     }
 
@@ -357,6 +358,7 @@ private struct ProviderRow: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
+        formatter.locale = .appDisplay
         return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 }

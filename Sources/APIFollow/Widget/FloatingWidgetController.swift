@@ -37,6 +37,7 @@ final class FloatingWidgetController: ObservableObject {
             panel = existing
         } else {
             let view = GlobalOverlayView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot, onClose: { [weak self] in self?.hide() })
+                .environment(\.locale, .appDisplay)
             panel = FloatingWidgetPanel(rootView: view)
             self.panel = panel
         }

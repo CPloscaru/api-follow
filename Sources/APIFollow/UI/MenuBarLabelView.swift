@@ -134,6 +134,7 @@ struct MenuBarLabelView: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
+        formatter.locale = .appDisplay
         formatter.maximumFractionDigits = amount >= 100 ? 0 : 2
         return formatter.string(from: amount as NSDecimalNumber) ?? "$0"
     }

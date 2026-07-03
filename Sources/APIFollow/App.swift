@@ -96,11 +96,13 @@ struct APIFollowApp: App {
             MenuBarLabelView(snapshot: snapshot, claudePlanSnapshot: claudePlanSnapshot)
         }
         .menuBarExtraStyle(.window)
+        .environment(\.locale, .appDisplay)
 
         Window("API Follow Dashboard", id: "dashboard") {
             DashboardView(store: store, providers: Self.providers, snapshot: snapshot)
         }
         .defaultSize(width: 480, height: 420)
+        .environment(\.locale, .appDisplay)
     }
 
     private static func databasePath() -> String {

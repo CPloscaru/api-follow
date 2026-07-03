@@ -1,5 +1,13 @@
 import Foundation
 
+/// All app-facing text formatting (currency, dates, relative times) is
+/// pinned to this regardless of the system locale — otherwise things like
+/// relative-date strings ("Resets in 3 hours") and currency separators
+/// silently switch language/format on a non-English Mac.
+extension Locale {
+    static let appDisplay = Locale(identifier: "en_US")
+}
+
 /// v1 (MVP) scope per design doc: Anthropic + OpenAI only.
 /// OpenRouter, Mistral, fal.ai are steady-state additions behind the
 /// generic adapter interface (design doc Next Steps #4).
