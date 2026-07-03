@@ -3,6 +3,12 @@
 A macOS menu bar app that tracks how much you're spending across your LLM/API
 providers — at a glance, without opening five different dashboards.
 
+## Screenshots
+
+| Menu bar popover | Dashboard | Floating overlay |
+|:---:|:---:|:---:|
+| ![Menu bar popover](screenshot/widget.png) | ![Dashboard window](screenshot/dashboard.png) | ![Floating overlay widget](screenshot/overlay.png) |
+
 ## Features
 
 - **Menu bar summary**: total spend this month, plus a per-provider row
@@ -28,9 +34,36 @@ providers — at a glance, without opening five different dashboards.
 | fal.ai     | ✅ | ✅ prepaid credits |
 | Apify      | ✅ | ✅ monthly plan cap remaining |
 
-Each provider requires an **Admin/Management-scoped** API key, not a regular
-one — the in-app key entry field for each provider links to where to create
-it.
+### Getting an API key for each provider
+
+Every provider needs an **Admin/Management-scoped key** — your regular
+day-to-day API key won't work here, since it can't read spend/usage data,
+only make inference calls. Paste the key into the corresponding row in the
+menu bar popover.
+
+| Provider | Where to create it |
+|----------|---------------------|
+| Anthropic | Console → Settings → Organization → Admin API key (`sk-ant-admin01-…`) |
+| OpenAI | [platform.openai.com/settings/organization/admin-keys](https://platform.openai.com/settings/organization/admin-keys) |
+| OpenRouter | [openrouter.ai/settings/management-keys](https://openrouter.ai/settings/management-keys) — a Management (Provisioning) key |
+| fal.ai | fal.ai → API Keys → create a new key with **ADMIN** scope |
+| Apify | Apify Console → Settings → Integrations → personal API token |
+
+### Why does it ask for my Mac password?
+
+Keys are saved in the **macOS Keychain** (`KeychainStore.swift`), never
+written to disk in plaintext or checked into the SQLite history store — the
+password prompt you see is macOS's own Keychain Access dialog, not something
+this app implements itself.
+
+You'll typically see it twice: once the first time you save a key for a
+provider, and then again **every time you rebuild the app** during
+development. That second part is a side effect of `scripts/build-app.sh`
+ad-hoc signing the bundle (`codesign --sign -`) — each rebuild can produce a
+slightly different code identity, and the Keychain re-checks the calling
+app's signature against the one that originally saved the item before
+releasing it. It's expected for local/unsigned builds, not a bug; a
+consistently signed release build wouldn't re-prompt like this.
 
 ## Requirements
 
