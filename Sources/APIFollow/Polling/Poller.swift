@@ -13,7 +13,11 @@ actor Poller {
     private let keychain: KeychainStore
     private let adapters: [Provider: ProviderAdapter]
     private let balanceFetchers: [Provider: BalanceFetcher]
-    private let pollInterval: TimeInterval
+    private let defaultPollInterval: TimeInterval
+    /// Per-provider override of `defaultPollInterval`. fal.ai and
+    /// OpenRouter poll faster than the rest so heavy usage shows up in
+    /// the UI sooner — see App.swift's Poller init call.
+    private let pollIntervals: [Provider: TimeInterval]
 
     private var statuses: [Provider: ProviderStatus] = [:]
     /// Remaining credit balance, only for providers with a
@@ -28,7 +32,7 @@ actor Poller {
     /// concurrent fetch — prevents duplicate rows / write races.
     private var inFlight: Set<Provider> = []
 
-    private var pollLoopTask: Task<Void, Never>?
+    private var pollLoopTasks: [Provider: Task<Void, Never>] = [:]
     /// D3: held for the poller's whole lifetime so macOS doesn't throttle
     /// the poll loop's Task.sleep when the app has no foreground window.
     /// `NSObjectProtocol` — AppKit-only, so this file is inert (compiles
@@ -53,13 +57,19 @@ actor Poller {
         keychain: KeychainStore,
         adapters: [Provider: ProviderAdapter],
         balanceFetchers: [Provider: BalanceFetcher] = [:],
-        pollInterval: TimeInterval = 300
+        pollInterval: TimeInterval = 300,
+        pollIntervals: [Provider: TimeInterval] = [:]
     ) {
         self.store = store
         self.keychain = keychain
         self.adapters = adapters
         self.balanceFetchers = balanceFetchers
-        self.pollInterval = pollInterval
+        self.defaultPollInterval = pollInterval
+        self.pollIntervals = pollIntervals
+    }
+
+    private func interval(for provider: Provider) -> TimeInterval {
+        pollIntervals[provider] ?? defaultPollInterval
     }
 
     func setOnUpdate(_ handler: @escaping @Sendable () async -> Void) {
@@ -72,18 +82,21 @@ actor Poller {
         beginAppNapExemption()
         observeWake()
 
-        pollLoopTask?.cancel()
-        pollLoopTask = Task {
-            while !Task.isCancelled {
-                await pollAll()
-                try? await Task.sleep(for: .seconds(pollInterval))
+        for task in pollLoopTasks.values { task.cancel() }
+        pollLoopTasks = adapters.keys.reduce(into: [:]) { tasks, provider in
+            tasks[provider] = Task {
+                while !Task.isCancelled {
+                    await self.pollNow(provider)
+                    let interval = await self.interval(for: provider)
+                    try? await Task.sleep(for: .seconds(interval))
+                }
             }
         }
     }
 
     func stop() {
-        pollLoopTask?.cancel()
-        pollLoopTask = nil
+        for task in pollLoopTasks.values { task.cancel() }
+        pollLoopTasks = [:]
         if let wakeObserver {
             #if canImport(AppKit)
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)

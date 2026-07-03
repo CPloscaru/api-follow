@@ -8,6 +8,7 @@ enum Provider: String, CaseIterable, Codable, Sendable {
     case openai
     case openrouter
     case fal
+    case apify
 }
 
 /// Anthropic's Cost API only supports workspace-level grouping (no

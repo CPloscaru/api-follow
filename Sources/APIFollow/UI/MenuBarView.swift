@@ -202,6 +202,7 @@ struct MenuBarView: View {
         case .openai: return "OpenAI"
         case .openrouter: return "OpenRouter"
         case .fal: return "fal.ai"
+        case .apify: return "Apify"
         }
     }
 
@@ -341,6 +342,8 @@ private struct ProviderRow: View {
             return "Management (Provisioning) key, not your regular API key. openrouter.ai/settings/management-keys"
         case .fal:
             return "ADMIN-scope key, not your regular API-scope key. fal.ai → API Keys → create with ADMIN scope."
+        case .apify:
+            return "Personal API token. Apify Console → Settings → Integrations."
         }
     }
 

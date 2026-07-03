@@ -11,7 +11,7 @@ struct APIFollowApp: App {
     private let claudePlanSnapshot: ClaudePlanSnapshotStore
     private let floatingWidget: FloatingWidgetController
 
-    private static let providers: [Provider] = [.anthropic, .openai, .openrouter, .fal]
+    private static let providers: [Provider] = [.anthropic, .openai, .openrouter, .fal, .apify]
 
     init() {
         let store: SpendStore
@@ -32,12 +32,20 @@ struct APIFollowApp: App {
             .openai: OpenAIAdapter(),
             .openrouter: OpenRouterAdapter(),
             .fal: FalAdapter(),
+            .apify: ApifyAdapter(),
         ]
         let balanceFetchers: [Provider: BalanceFetcher] = [
             .openrouter: OpenRouterBalanceFetcher(),
             .fal: FalBalanceFetcher(),
+            .apify: ApifyBalanceFetcher(),
         ]
-        let poller = Poller(store: store, keychain: keychain, adapters: adapters, balanceFetchers: balanceFetchers)
+        let poller = Poller(
+            store: store,
+            keychain: keychain,
+            adapters: adapters,
+            balanceFetchers: balanceFetchers,
+            pollIntervals: [.fal: 30, .openrouter: 30]
+        )
         self.poller = poller
         self.snapshot = SpendSnapshotStore(store: store, poller: poller, keychain: keychain, providers: Self.providers)
 
